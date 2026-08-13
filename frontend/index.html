@@ -424,6 +424,21 @@
         </div>
       </div>
 
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>Incident Replay</span>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <button id="replay-btn" class="btn-submit" style="flex: 1; background: linear-gradient(135deg, #ef4444, #dc2626); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);" onclick="startReplay()">
+            ▶ Replay Jaipur 2009
+          </button>
+          <button id="stop-btn" onclick="stopReplay()" style="padding: 0 14px; background: #334155; color: #fff; border: 1px solid #475569; border-radius: var(--radius); font-size: 0.82rem; cursor: pointer; display: none;">
+            ✕ Stop
+          </button>
+        </div>
+        <div id="replay-status" style="font-size: 0.8rem; color: #94a3b8; min-height: 20px;"></div>
+      </div>
+
       <div class="sidebar-section" style="flex: 1;">
         <div class="section-title">Threat Zone Legend</div>
         
@@ -485,9 +500,26 @@
       bina: { lat: 24.1700, lon: 78.1800, fuel_type: "LPG", mass_kg: 1800000, storage_type: "sphere", wind_speed: 5.0, wind_dir: 45 }
     };
 
+    // Pre-baked tank positions for Jaipur IOCL 2009 incident replay
+    const JAIPUR_TANKS = [
+      { id: 1, lat: 26.8505, lon: 75.8069, fuel: "LPG",    mass_kg: 300000,  ignite_day: 1  },
+      { id: 2, lat: 26.8514, lon: 75.8078, fuel: "LPG",    mass_kg: 250000,  ignite_day: 1  },
+      { id: 3, lat: 26.8496, lon: 75.8061, fuel: "Petrol",  mass_kg: 400000,  ignite_day: 2  },
+      { id: 4, lat: 26.8521, lon: 75.8055, fuel: "LPG",    mass_kg: 280000,  ignite_day: 3  },
+      { id: 5, lat: 26.8488, lon: 75.8082, fuel: "Crude",   mass_kg: 500000,  ignite_day: 4  },
+      { id: 6, lat: 26.8530, lon: 75.8090, fuel: "Petrol",  mass_kg: 350000,  ignite_day: 5  },
+      { id: 7, lat: 26.8475, lon: 75.8050, fuel: "LPG",    mass_kg: 270000,  ignite_day: 6  },
+      { id: 8, lat: 26.8540, lon: 75.8065, fuel: "Crude",   mass_kg: 450000,  ignite_day: 7  },
+      { id: 9, lat: 26.8500, lon: 75.8095, fuel: "LPG",    mass_kg: 260000,  ignite_day: 8  },
+      { id: 10, lat: 26.8460, lon: 75.8075, fuel: "Petrol", mass_kg: 380000,  ignite_day: 10 },
+      { id: 11, lat: 26.8550, lon: 75.8040, fuel: "Crude",  mass_kg: 420000,  ignite_day: 11 },
+    ];
+
     let map;
     let geoJsonLayer = null;
     let facilityMarker = null;
+    let replayInterval = null;
+    let replayLayers = [];
 
     // Initialize Map
     function initMap() {
@@ -542,8 +574,136 @@
       }
     }
 
+    function stopReplay() {
+      if (replayInterval) {
+        clearInterval(replayInterval);
+        replayInterval = null;
+      }
+      replayLayers.forEach(l => map.removeLayer(l));
+      replayLayers = [];
+
+      const btn = document.getElementById('replay-btn');
+      const stopBtn = document.getElementById('stop-btn');
+      const status = document.getElementById('replay-status');
+
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '▶ Replay Jaipur 2009';
+      }
+      if (stopBtn) {
+        stopBtn.style.display = 'none';
+      }
+      if (status) {
+        status.textContent = '';
+      }
+    }
+
+    function startReplay() {
+      stopReplay();
+
+      // Fly map to Jaipur
+      map.flyTo([26.8505, 75.8069], 14, { duration: 1.5 });
+
+      // Show all tanks as grey dormant circles first
+      JAIPUR_TANKS.forEach(tank => {
+        const dormant = L.circleMarker([tank.lat, tank.lon], {
+          radius: 8,
+          color: '#666',
+          fillColor: '#aaa',
+          fillOpacity: 0.8,
+          weight: 1.5
+        }).addTo(map);
+        dormant.bindTooltip(`Tank ${tank.id} — ${tank.fuel} — dormant`);
+        replayLayers.push(dormant);
+      });
+
+      let step = 0;
+      const btn = document.getElementById('replay-btn');
+      const stopBtn = document.getElementById('stop-btn');
+      const status = document.getElementById('replay-status');
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Replaying...';
+      stopBtn.style.display = 'block';
+
+      // Sort tanks by ignite_day
+      const sorted = [...JAIPUR_TANKS].sort((a, b) => a.ignite_day - b.ignite_day);
+
+      replayInterval = setInterval(() => {
+        if (step >= sorted.length) {
+          clearInterval(replayInterval);
+          replayInterval = null;
+          btn.disabled = false;
+          btn.textContent = '↺ Replay again';
+          status.textContent = 'Incident complete — 11 days, 11 tanks';
+          return;
+        }
+
+        const tank = sorted[step];
+        status.textContent = `Day ${tank.ignite_day} — Tank ${tank.id} ignites (${tank.fuel}, ${(tank.mass_kg/1000).toFixed(0)}t)`;
+
+        // Compute blast radii (reuse existing blast formula)
+        const tnt_factors = { LPG: 0.70, Petrol: 0.84, Crude: 0.65 };
+        const tnt = tank.mass_kg * (tnt_factors[tank.fuel] || 0.70);
+        const cbrt = Math.cbrt(tnt);
+        const r_lethal   = 2.2 * cbrt;
+        const r_severe   = 3.5 * cbrt;
+        const r_moderate = 6.8 * cbrt;
+        const r_fireball = 3.86 * Math.pow(tank.mass_kg, 0.325);
+
+        // Draw fireball pulse (orange flash circle that fades)
+        const pulse = L.circle([tank.lat, tank.lon], {
+          radius: r_fireball,
+          color: '#FF4500',
+          fillColor: '#FF6500',
+          fillOpacity: 0.6,
+          weight: 2
+        }).addTo(map);
+        replayLayers.push(pulse);
+
+        // Fade pulse out after 800ms, leave as dim remnant
+        setTimeout(() => {
+          pulse.setStyle({ fillOpacity: 0.15, color: '#cc3300', weight: 1 });
+        }, 800);
+
+        // Draw permanent zone rings for this tank
+        const zones = [
+          { r: r_moderate, color: '#FFD700', fill: '#FFD700', label: 'Moderate' },
+          { r: r_severe,   color: '#FF8C00', fill: '#FF8C00', label: 'Severe'   },
+          { r: r_lethal,   color: '#CC0000', fill: '#CC0000', label: 'Lethal'   },
+        ];
+        zones.forEach(z => {
+          const ring = L.circle([tank.lat, tank.lon], {
+            radius: z.r,
+            color: z.color,
+            fillColor: z.fill,
+            fillOpacity: 0.12,
+            weight: 1.5,
+            dashArray: '4 4'
+          }).addTo(map);
+          ring.bindTooltip(`Tank ${tank.id} — ${z.label} zone — ${Math.round(z.r)}m`);
+          replayLayers.push(ring);
+        });
+
+        // Replace dormant marker with active fire marker
+        const fire = L.circleMarker([tank.lat, tank.lon], {
+          radius: 10,
+          color: '#FF2200',
+          fillColor: '#FF6600',
+          fillOpacity: 1,
+          weight: 2
+        }).addTo(map);
+        fire.bindTooltip(`Tank ${tank.id} — ON FIRE — Day ${tank.ignite_day}`, { permanent: false });
+        replayLayers.push(fire);
+
+        step++;
+      }, 1800); // 1.8 seconds per tank = ~20 second full replay
+    }
+
     async function submitCalculation(event) {
       if (event) event.preventDefault();
+      stopReplay();
+
 
       const lat = parseFloat(document.getElementById('lat').value);
       const lon = parseFloat(document.getElementById('lon').value);
