@@ -52,6 +52,7 @@
       align-items: center;
       justify-content: space-between;
       z-index: 1000;
+      flex-shrink: 0;
     }
 
     .brand {
@@ -110,7 +111,8 @@
 
     /* Sidebar */
     sidebar {
-      width: 380px;
+      width: 320px;
+      flex-shrink: 0;
       background: var(--panel-bg);
       border-right: 1px solid var(--panel-border);
       display: flex;
@@ -273,6 +275,7 @@
     #map {
       flex: 1;
       height: 100%;
+      min-width: 0;
       background: #090d16;
     }
 
@@ -664,9 +667,15 @@
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | SurakshaMitra'
       }).addTo(map);
 
+      setTimeout(() => { if (map) map.invalidateSize(); }, 100);
+
       // Trigger initial demo calculation
       submitCalculation();
     }
+
+    window.addEventListener('resize', () => {
+      if (map) map.invalidateSize();
+    });
 
     function onPresetChange() {
       const presetKey = document.getElementById('facility_preset').value;
