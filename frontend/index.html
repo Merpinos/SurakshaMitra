@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SurakshaMitra — Hazardous Industrial Threat Zone Visualizer</title>
+  <meta name="description" content="Visualizes blast threat zones and BLEVE fireball radii for petroleum and hazardous industrial storage facilities in India.">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --panel-bg: #1e293b;
+      --panel-border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-blue: #3b82f6;
+      --accent-blue-hover: #2563eb;
+      --accent-red: #ef4444;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    header {
+      background: #090d16;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 1000;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #ef4444, #f97316);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #fff;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(to right, #ffffff, #cbd5e1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-subtitle {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .badge-sih {
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: #1e293b;
+      border: 1px solid #3b82f640;
+      color: #60a5fa;
+      padding: 4px 10px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* App Container */
+    .app-container {
+      display: flex;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    sidebar {
+      width: 380px;
+      background: var(--panel-bg);
+      border-right: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      z-index: 900;
+      overflow-y: auto;
+      box-shadow: 4px 0 16px rgba(0,0,0,0.3);
+    }
+
+    .sidebar-section {
+      padding: 18px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .section-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Status Badge */
+    .status-badge {
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-badge.success {
+      background: rgba(34, 197, 94, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .status-badge.warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .status-badge.info {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Form Controls */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .form-control, .form-select {
+      width: 100%;
+      padding: 9px 12px;
+      background: #0f172a;
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius);
+      color: #fff;
+      font-family: inherit;
+      font-size: 0.88rem;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .form-control:focus, .form-select:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-blue-hover));
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-submit:hover {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Legend */
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 0;
+      font-size: 0.8rem;
+    }
+
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .legend-details {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .legend-name {
+      font-weight: 600;
+
+    }
+
+    .legend-desc {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    /* Map Canvas */
+    #map {
+      flex: 1;
+      height: 100%;
+      background: #090d16;
+    }
+
+    /* Custom Leaflet Popup Styling */
+    .leaflet-popup-content-wrapper {
+      background: #1e293b !important;
+      color: #f8fafc !important;
+      border: 1px solid #334155;
+      border-radius: 8px !important;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    .leaflet-popup-tip {
+      background: #1e293b !important;
+    }
+
+    .popup-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .popup-row {
+      font-size: 0.8rem;
+      margin-bottom: 4px;
+
+      color: #cbd5e1;
+    }
+
+    .popup-row strong {
+      color: #fff;
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">SM</div>
+      <div>
+        <div class="brand-title">SurakshaMitra</div>
+        <div class="brand-subtitle">Hazardous Industrial Facility Threat Zone Visualizer</div>
+      </div>
+    </div>
+    <div class="badge-sih">SIH-2026 | MHA (SIH260205)</div>
+  </header>
+
+  <div class="app-container">
+    <sidebar>
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>Preset Facilities</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="facility_preset">Select Facility</label>
+          <select id="facility_preset" class="form-select" onchange="onPresetChange()">
+            <option value="jaipur" selected>Jaipur IOCL — LPG (2,700,000 kg)</option>
+            <option value="vizag">Vizag HPCL — Crude (5,000,000 kg)</option>
+            <option value="mangalore">Mangalore MRPL — Petrol (3,500,000 kg)</option>
+            <option value="bina">Bina BPCL — LPG (1,800,000 kg)</option>
+            <option value="custom">Custom Location / Manual Entry</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>Facility & Fuel Parameters</span>
+        </div>
+        <form id="threat_form" onsubmit="submitCalculation(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="lat">Latitude (°N)</label>
+              <input type="number" step="any" id="lat" class="form-control" value="26.8505" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="lon">Longitude (°E)</label>
+              <input type="number" step="any" id="lon" class="form-control" value="75.8069" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="fuel_type">Fuel Type</label>
+              <select id="fuel_type" class="form-select" required>
+                <option value="LPG" selected>LPG (Factor: 0.70)</option>
+                <option value="Petrol">Petrol (Factor: 0.84)</option>
+                <option value="Crude">Crude Oil (Factor: 0.65)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="storage_type">Storage Type</label>
+              <select id="storage_type" class="form-select">
+                <option value="bullet" selected>Bullet Vessel</option>
+                <option value="sphere">Horton Sphere</option>
+                <option value="tank">Atmospheric Tank</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="mass_kg">Fuel Mass (kg)</label>
+            <input type="number" step="any" id="mass_kg" class="form-control" value="2700000" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="wind_speed">Wind Speed (m/s)</label>
+              <input type="number" step="0.1" id="wind_speed" class="form-control" value="5.0" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="wind_dir">Wind Dir (°)</label>
+              <input type="number" step="1" id="wind_dir" class="form-control" value="315" min="0" max="360" required>
+            </div>
+          </div>
+
+          <button type="submit" id="submit_btn" class="btn-submit">
+            <div class="spinner" id="btn_spinner"></div>
+            <span id="btn_text">Visualize Threat Zones</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>API Connection Status</span>
+        </div>
+        <div id="status_container">
+          <div class="status-badge info" id="status_badge">
+            <span class="status-dot"></span>
+            <span id="status_text">Ready to compute</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-section" style="flex: 1;">
+        <div class="section-title">Threat Zone Legend</div>
+        
+        <div class="legend-item">
+          <div class="legend-color" style="background: rgba(220, 38, 38, 0.5); border-color: #991b1b;"></div>
+          <div class="legend-details">
+            <span class="legend-name" style="color: #f87171;">Fireball Radius</span>
+            <span class="legend-desc">Thermal BLEVE fireball limit</span>
+          </div>
+        </div>
+
+        <div class="legend-item">
+          <div class="legend-color" style="background: rgba(220, 38, 38, 0.35); border-color: #dc2626;"></div>
+          <div class="legend-details">
+            <span class="legend-name" style="color: #ef4444;">Lethal Zone</span>
+            <span class="legend-desc">Overpressure &gt; 83 kPa (Structural Collapse / Fatalities)</span>
+          </div>
+        </div>
+
+        <div class="legend-item">
+          <div class="legend-color" style="background: rgba(234, 88, 12, 0.35); border-color: #ea580c;"></div>
+          <div class="legend-details">
+            <span class="legend-name" style="color: #f97316;">Severe Zone</span>
+            <span class="legend-desc">Overpressure &gt; 34 kPa (Heavy Structural Damage)</span>
+          </div>
+        </div>
+
+        <div class="legend-item">
+          <div class="legend-color" style="background: rgba(202, 138, 4, 0.35); border-color: #ca8a04;"></div>
+          <div class="legend-details">
+            <span class="legend-name" style="color: #eab308;">Moderate Zone</span>
+            <span class="legend-desc">Overpressure &gt; 7 kPa (Minor Damage / Glass Breakage)</span>
+          </div>
+        </div>
+
+        <div class="legend-item">
+          <div class="legend-color" style="background: rgba(59, 130, 246, 0.30); border-color: #2563eb;"></div>
+          <div class="legend-details">
+            <span class="legend-name" style="color: #60a5fa;">Dispersion Plume</span>
+            <span class="legend-desc">Downwind vapor dispersion direction</span>
+          </div>
+        </div>
+
+      </div>
+    </sidebar>
+
+    <div id="map"></div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <script>
+    // Hardcoded facility presets
+    const PRESETS = {
+      jaipur: { lat: 26.8505, lon: 75.8069, fuel_type: "LPG", mass_kg: 2700000, storage_type: "bullet", wind_speed: 5.0, wind_dir: 315 },
+      vizag: { lat: 17.6868, lon: 83.2185, fuel_type: "Crude", mass_kg: 5000000, storage_type: "tank", wind_speed: 6.0, wind_dir: 180 },
+      mangalore: { lat: 12.8916, lon: 74.8430, fuel_type: "Petrol", mass_kg: 3500000, storage_type: "tank", wind_speed: 4.5, wind_dir: 270 },
+      bina: { lat: 24.1700, lon: 78.1800, fuel_type: "LPG", mass_kg: 1800000, storage_type: "sphere", wind_speed: 5.0, wind_dir: 45 }
+    };
+
+    let map;
+    let geoJsonLayer = null;
+    let facilityMarker = null;
+
+    // Initialize Map
+    function initMap() {
+      // Centered on India
+      map = L.map('map', {
+        zoomControl: true
+      }).setView([20.5937, 78.9629], 5);
+
+      // OpenStreetMap tiles
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | SurakshaMitra'
+      }).addTo(map);
+
+      // Trigger initial demo calculation
+      submitCalculation();
+    }
+
+    function onPresetChange() {
+      const presetKey = document.getElementById('facility_preset').value;
+      if (presetKey in PRESETS) {
+        const p = PRESETS[presetKey];
+        document.getElementById('lat').value = p.lat;
+        document.getElementById('lon').value = p.lon;
+        document.getElementById('fuel_type').value = p.fuel_type;
+        document.getElementById('mass_kg').value = p.mass_kg;
+        document.getElementById('storage_type').value = p.storage_type;
+        document.getElementById('wind_speed').value = p.wind_speed;
+        document.getElementById('wind_dir').value = p.wind_dir;
+      }
+    }
+
+    function updateStatus(message, type) {
+      const badge = document.getElementById('status_badge');
+      const text = document.getElementById('status_text');
+      badge.className = `status-badge ${type}`;
+      text.innerText = message;
+    }
+
+    function showLoading(isLoading) {
+      const btn = document.getElementById('submit_btn');
+      const spinner = document.getElementById('btn_spinner');
+      const btnText = document.getElementById('btn_text');
+      
+      btn.disabled = isLoading;
+      if (isLoading) {
+        spinner.style.display = 'block';
+        btnText.innerText = 'Calculating...';
+      } else {
+        spinner.style.display = 'none';
+        btnText.innerText = 'Visualize Threat Zones';
+      }
+    }
+
+    async function submitCalculation(event) {
+      if (event) event.preventDefault();
+
+      const lat = parseFloat(document.getElementById('lat').value);
+      const lon = parseFloat(document.getElementById('lon').value);
+      const fuelType = document.getElementById('fuel_type').value;
+      const massKg = parseFloat(document.getElementById('mass_kg').value);
+      const storageType = document.getElementById('storage_type').value;
+      const windSpeed = parseFloat(document.getElementById('wind_speed').value);
+      const windDir = parseFloat(document.getElementById('wind_dir').value);
+
+      const payload = {
+        lat: lat,
+        lon: lon,
+        fuel_type: fuelType,
+        mass_kg: massKg,
+        storage_type: storageType,
+        wind_speed: windSpeed,
+        wind_dir: windDir
+      };
+
+      showLoading(true);
+      updateStatus("Connecting to API...", "info");
+
+      try {
+        const response = await fetch('http://localhost:8000/compute-zone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
+        const geojson = await response.json();
+        renderGeoJson(geojson, lat, lon);
+        updateStatus("Live API Connected", "success");
+      } catch (err) {
+        console.warn("FastAPI backend unreachable. Loading pre-baked jaipur_demo.json fallback...", err);
+        updateStatus("Offline Fallback Mode (Jaipur IOCL)", "warning");
+        
+        try {
+          const fallbackRes = await fetch('data/jaipur_demo.json');
+          if (!fallbackRes.ok) {
+            throw new Error(`Fallback HTTP ${fallbackRes.status}`);
+          }
+          const fallbackGeojson = await fallbackRes.json();
+          renderGeoJson(fallbackGeojson, lat, lon);
+        } catch (fallbackErr) {
+          console.error("Error loading fallback GeoJSON:", fallbackErr);
+          updateStatus("Failed to load data", "warning");
+          alert("Error: Backend is unreachable and fallback dataset could not be loaded.");
+        }
+      } finally {
+        showLoading(false);
+      }
+    }
+
+    function renderGeoJson(geojson, targetLat, targetLon) {
+      // Clear existing layers
+      if (geoJsonLayer) {
+        map.removeLayer(geoJsonLayer);
+      }
+      if (facilityMarker) {
+        map.removeLayer(facilityMarker);
+      }
+
+      // Add facility marker
+      const facilityPos = [targetLat || geojson.metadata?.facility?.lat || 26.8505, targetLon || geojson.metadata?.facility?.lon || 75.8069];
+      facilityMarker = L.marker(facilityPos, {
+        title: "Facility Location"
+      }).addTo(map);
+      
+      const meta = geojson.metadata?.facility || {};
+      facilityMarker.bindPopup(`
+        <div class="popup-title">🏭 Facility Center Point</div>
+        <div class="popup-row"><strong>Lat/Lon:</strong> ${facilityPos[0]}°, ${facilityPos[1]}°</div>
+        <div class="popup-row"><strong>Fuel Type:</strong> ${meta.fuel_type || 'N/A'}</div>
+        <div class="popup-row"><strong>Fuel Mass:</strong> ${(meta.mass_kg || 0).toLocaleString()} kg</div>
+        <div class="popup-row"><strong>TNT Equivalent:</strong> ${(meta.tnt_equivalent_kg || 0).toLocaleString()} kg</div>
+      `);
+
+      // Add GeoJSON Layer with style and popup binding
+      geoJsonLayer = L.geoJSON(geojson, {
+        style: function (feature) {
+          const props = feature.properties || {};
+          return {
+            color: props.color || '#3b82f6',
+            fillColor: props.fill_color || '#3b82f6',
+            fillOpacity: props.fill_opacity || 0.35,
+            weight: 2,
+            opacity: 0.85
+          };
+        },
+        onEachFeature: function (feature, layer) {
+          const props = feature.properties || {};
+          const radiusText = props.radius_m ? `${props.radius_m.toLocaleString()} m` : 'N/A';
+          
+          let popupContent = `
+            <div class="popup-title" style="color: ${props.color || '#fff'}">
+              ${props.zone_name || 'Threat Zone'}
+            </div>
+            <div class="popup-row"><strong>Radius:</strong> ${radiusText}</div>
+            <div class="popup-row"><strong>Threshold / Overpressure:</strong> ${props.overpressure_kpa || 'N/A'}</div>
+          `;
+
+          if (props.wind_speed_ms !== undefined) {
+            popupContent += `<div class="popup-row"><strong>Downwind Speed:</strong> ${props.wind_speed_ms} m/s</div>`;
+            popupContent += `<div class="popup-row"><strong>Wind Direction:</strong> ${props.wind_dir_deg}°</div>`;
+          }
+
+          layer.bindPopup(popupContent);
+        }
+      }).addTo(map);
+
+      // Fit map bounds to zones
+      if (geoJsonLayer.getBounds().isValid()) {
+        map.fitBounds(geoJsonLayer.getBounds(), { padding: [30, 30] });
+      }
+    }
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', initMap);
+  </script>
+</body>
+</html>
