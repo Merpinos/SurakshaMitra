@@ -114,9 +114,8 @@
       flex-direction: row;
       flex: 1;
       width: 100%;
-      height: calc(100vh - 57px);
-      position: relative;
       overflow: hidden;
+      min-height: 0;
     }
 
     /* Sidebar */
@@ -287,7 +286,6 @@
     /* Map Canvas */
     #map {
       flex: 1 1 auto;
-      width: calc(100vw - 320px);
       height: 100%;
       min-width: 0;
       min-height: 0;
@@ -423,7 +421,9 @@
               <label class="form-label" for="wind_dir">Wind Dir (°)</label>
               <input type="number" step="1" id="wind_dir" class="form-control" value="315" min="0" max="360" required>
             </div>
-               <button type="submit" id="submit_btn" class="btn-submit">
+          </div>
+
+          <button type="submit" id="submit_btn" class="btn-submit">
             <div class="spinner" id="btn_spinner"></div>
             <span id="btn_text">Visualize Threat Zones</span>
           </button>
