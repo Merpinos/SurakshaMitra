@@ -706,6 +706,11 @@
             <input type="number" step="any" id="mass_kg" class="form-control" value="2700000" required>
           </div>
 
+          <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <input type="checkbox" id="use_live_weather" checked onchange="toggleWeatherInputs()">
+            <label for="use_live_weather" style="font-size: 0.8rem; font-weight: 500;">Use Live Weather (Open-Meteo)</label>
+          </div>
+
           <div class="form-row">
             <div class="form-group">
               <label class="form-label" for="wind_speed">Wind Speed (m/s)</label>
@@ -1016,6 +1021,12 @@
       if (map) map.invalidateSize();
     });
 
+    function toggleWeatherInputs() {
+      const useLive = document.getElementById('use_live_weather').checked;
+      document.getElementById('wind_speed').disabled = useLive;
+      document.getElementById('wind_dir').disabled = useLive;
+    }
+
     function onPresetChange() {
       const presetKey = document.getElementById('facility_preset').value;
       if (presetKey in PRESETS) {
@@ -1062,6 +1073,7 @@
       const storageType = document.getElementById('storage_type').value;
       const windSpeed = parseFloat(document.getElementById('wind_speed').value);
       const windDir = parseFloat(document.getElementById('wind_dir').value);
+      const useLiveWeather = document.getElementById('use_live_weather').checked;
       const presetKey = document.getElementById('facility_preset').value;
 
       const facilityMap = {
@@ -1075,6 +1087,7 @@
 
       const payload = {
         facility_id: facilityId,
+        use_live_weather: useLiveWeather,
         lat: lat,
         lon: lon,
         fuel_type: fuelType,
@@ -1099,6 +1112,12 @@
         }
 
         const geojson = await response.json();
+        
+        if (geojson.current_weather && geojson.current_weather.is_live) {
+          document.getElementById('wind_speed').value = geojson.current_weather.wind_speed_ms;
+          document.getElementById('wind_dir').value = geojson.current_weather.wind_dir_deg;
+        }
+
         renderGeoJson(geojson, lat, lon);
         updateStatus("Live API Connected", "success");
       } catch (err) {
@@ -1334,7 +1353,10 @@
     }
 
     // Initialize on page load
-    window.addEventListener('DOMContentLoaded', initMap);
+    window.addEventListener('DOMContentLoaded', () => {
+      toggleWeatherInputs();
+      initMap();
+    });
   </script>
 </body>
 </html>

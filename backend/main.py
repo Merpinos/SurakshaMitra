@@ -15,6 +15,7 @@ from pyproj import CRS, Transformer
 from backend.models.blast import compute_blast_radii
 from backend.models.thermal import compute_fireball_radius
 from backend.models.tactical import evaluate_tactical_situation
+from backend.weather import get_live_wind
 
 app = FastAPI(
     title="SurakshaMitra API",
@@ -34,6 +35,7 @@ app.add_middleware(
 
 class ZoneRequest(BaseModel):
     facility_id: Optional[str] = Field(default=None, description="Facility ID (e.g. jaipur_iocl, custom)")
+    use_live_weather: Optional[bool] = Field(default=False, description="Whether to fetch live wind data")
     lat: float = Field(..., description="Latitude of facility", example=26.8505)
     lon: float = Field(..., description="Longitude of facility", example=75.8069)
     fuel_type: str = Field(..., description="Fuel type (LPG, Petrol, Crude)", example="LPG")
@@ -114,6 +116,11 @@ def compute_zone(req: ZoneRequest) -> Dict[str, Any]:
     Returns GeoJSON FeatureCollection containing polygons with styling properties.
     """
     try:
+        if req.use_live_weather:
+            live_speed, live_dir = get_live_wind(req.lat, req.lon)
+            req.wind_speed = live_speed
+            req.wind_dir = live_dir
+
         blast_info = compute_blast_radii(req.mass_kg, req.fuel_type)
         r_fireball = compute_fireball_radius(req.mass_kg)
 
@@ -219,6 +226,11 @@ def compute_zone(req: ZoneRequest) -> Dict[str, Any]:
                     "wind_speed": req.wind_speed,
                     "wind_dir": req.wind_dir,
                 }
+            },
+            "current_weather": {
+                "wind_speed_ms": req.wind_speed,
+                "wind_dir_deg": req.wind_dir,
+                "is_live": req.use_live_weather,
             },
             "features": features,
             "tactical_summary": tactical_summary,
