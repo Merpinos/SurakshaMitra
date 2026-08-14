@@ -1,0 +1,87 @@
+{
+  "facility_id": "IOCL_JAIPUR_TERMINAL",
+  "plant_center": {
+    "lat": 26.8505,
+    "lon": 75.8069
+  },
+  "gates": [
+    {
+      "id": "G1",
+      "name": "Gate 1 (North Main)",
+      "lat": 26.8530,
+      "lon": 75.8069,
+      "type": "main_entry",
+      "description": "Primary vehicle and personnel entry on NH-8 side"
+    },
+    {
+      "id": "G2",
+      "name": "Gate 2 (West Access)",
+      "lat": 26.8505,
+      "lon": 75.8030,
+      "type": "secondary_entry",
+      "description": "Secondary access road towards residential colony"
+    },
+    {
+      "id": "G3",
+      "name": "Gate 3 (South Utility)",
+      "lat": 26.8475,
+      "lon": 75.8069,
+      "type": "utility_entry",
+      "description": "Utility and maintenance vehicle entry"
+    },
+    {
+      "id": "G4",
+      "name": "Gate 4 (East Siding)",
+      "lat": 26.8505,
+      "lon": 75.8110,
+      "type": "rail_siding",
+      "description": "Rail siding entry for tanker wagon operations"
+    }
+  ],
+  "tanks": [
+    {
+      "id": "T-101",
+      "name": "LPG Sphere T-101",
+      "lat": 26.8505,
+      "lon": 75.8069,
+      "fuel_type": "LPG",
+      "capacity": "1700T",
+      "storage_type": "sphere",
+      "is_origin": true,
+      "description": "Primary incident origin tank"
+    },
+    {
+      "id": "T-102",
+      "name": "LPG Sphere T-102",
+      "lat": 26.8512,
+      "lon": 75.8075,
+      "fuel_type": "LPG",
+      "capacity": "1200T",
+      "storage_type": "sphere",
+      "is_origin": false,
+      "description": "Adjacent LPG sphere - high domino risk"
+    },
+    {
+      "id": "P-201",
+      "name": "Petrol Tank P-201",
+      "lat": 26.8495,
+      "lon": 75.8055,
+      "fuel_type": "Petrol",
+      "capacity": "5000KL",
+      "storage_type": "tank",
+      "is_origin": false,
+      "description": "Petrol storage tank in south-west quadrant"
+    },
+    {
+      "id": "D-301",
+      "name": "Diesel Tank D-301",
+      "lat": 26.8485,
+      "lon": 75.8085,
+      "fuel_type": "Diesel",
+      "capacity": "8000KL",
+      "storage_type": "tank",
+      "is_origin": false,
+      "description": "Diesel storage tank in south-east quadrant"
+    }
+  ]
+}

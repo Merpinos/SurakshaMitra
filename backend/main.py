@@ -14,6 +14,7 @@ from pyproj import CRS, Transformer
 
 from backend.models.blast import compute_blast_radii
 from backend.models.thermal import compute_fireball_radius
+from backend.models.tactical import evaluate_tactical_situation
 
 app = FastAPI(
     title="SurakshaMitra API",
@@ -191,6 +192,17 @@ def compute_zone(req: ZoneRequest) -> Dict[str, Any]:
             }
         ]
 
+        # --- Tactical Decision Engine ---
+        tactical_summary = evaluate_tactical_situation(
+            origin_lat=req.lat,
+            origin_lon=req.lon,
+            mass_kg=req.mass_kg,
+            fireball_radius_m=r_fireball,
+            wind_speed=req.wind_speed,
+            wind_dir=req.wind_dir,
+            zone_features=features,
+        )
+
         return {
             "type": "FeatureCollection",
             "metadata": {
@@ -206,7 +218,8 @@ def compute_zone(req: ZoneRequest) -> Dict[str, Any]:
                     "wind_dir": req.wind_dir,
                 }
             },
-            "features": features
+            "features": features,
+            "tactical_summary": tactical_summary,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
