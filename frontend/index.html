@@ -1062,8 +1062,19 @@
       const storageType = document.getElementById('storage_type').value;
       const windSpeed = parseFloat(document.getElementById('wind_speed').value);
       const windDir = parseFloat(document.getElementById('wind_dir').value);
+      const presetKey = document.getElementById('facility_preset').value;
+
+      const facilityMap = {
+        'jaipur': 'jaipur_iocl',
+        'vizag': 'vizag_hpcl',
+        'mangalore': 'mangalore_mrpl',
+        'bina': 'bina_bpcl',
+        'custom': 'custom'
+      };
+      const facilityId = facilityMap[presetKey] || 'custom';
 
       const payload = {
+        facility_id: facilityId,
         lat: lat,
         lon: lon,
         fuel_type: fuelType,

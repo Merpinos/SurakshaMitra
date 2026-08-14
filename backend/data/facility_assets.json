@@ -1,87 +1,236 @@
 {
-  "facility_id": "IOCL_JAIPUR_TERMINAL",
-  "plant_center": {
-    "lat": 26.8505,
-    "lon": 75.8069
+  "jaipur_iocl": {
+    "facility_id": "IOCL_JAIPUR_TERMINAL",
+    "plant_center": {
+      "lat": 26.8505,
+      "lon": 75.8069
+    },
+    "gates": [
+      {
+        "id": "G1",
+        "name": "Gate 1 (North Main)",
+        "lat": 26.8530,
+        "lon": 75.8069,
+        "type": "main_entry",
+        "description": "Primary vehicle and personnel entry on NH-8 side"
+      },
+      {
+        "id": "G2",
+        "name": "Gate 2 (West Access)",
+        "lat": 26.8505,
+        "lon": 75.8030,
+        "type": "secondary_entry",
+        "description": "Secondary access road towards residential colony"
+      },
+      {
+        "id": "G3",
+        "name": "Gate 3 (South Utility)",
+        "lat": 26.8475,
+        "lon": 75.8069,
+        "type": "utility_entry",
+        "description": "Utility and maintenance vehicle entry"
+      },
+      {
+        "id": "G4",
+        "name": "Gate 4 (East Siding)",
+        "lat": 26.8505,
+        "lon": 75.8110,
+        "type": "rail_siding",
+        "description": "Rail siding entry for tanker wagon operations"
+      }
+    ],
+    "tanks": [
+      {
+        "id": "T-101",
+        "name": "LPG Sphere T-101",
+        "lat": 26.8505,
+        "lon": 75.8069,
+        "fuel_type": "LPG",
+        "capacity": "1700T",
+        "storage_type": "sphere",
+        "is_origin": true,
+        "description": "Primary incident origin tank"
+      },
+      {
+        "id": "T-102",
+        "name": "LPG Sphere T-102",
+        "lat": 26.8512,
+        "lon": 75.8075,
+        "fuel_type": "LPG",
+        "capacity": "1200T",
+        "storage_type": "sphere",
+        "is_origin": false,
+        "description": "Adjacent LPG sphere - high domino risk"
+      },
+      {
+        "id": "P-201",
+        "name": "Petrol Tank P-201",
+        "lat": 26.8495,
+        "lon": 75.8055,
+        "fuel_type": "Petrol",
+        "capacity": "5000KL",
+        "storage_type": "tank",
+        "is_origin": false,
+        "description": "Petrol storage tank in south-west quadrant"
+      },
+      {
+        "id": "D-301",
+        "name": "Diesel Tank D-301",
+        "lat": 26.8485,
+        "lon": 75.8085,
+        "fuel_type": "Diesel",
+        "capacity": "8000KL",
+        "storage_type": "tank",
+        "is_origin": false,
+        "description": "Diesel storage tank in south-east quadrant"
+      }
+    ]
   },
-  "gates": [
-    {
-      "id": "G1",
-      "name": "Gate 1 (North Main)",
-      "lat": 26.8530,
-      "lon": 75.8069,
-      "type": "main_entry",
-      "description": "Primary vehicle and personnel entry on NH-8 side"
+  "vizag_hpcl": {
+    "facility_id": "HPCL_VIZAG_REFINERY",
+    "plant_center": {
+      "lat": 17.6868,
+      "lon": 83.2185
     },
-    {
-      "id": "G2",
-      "name": "Gate 2 (West Access)",
-      "lat": 26.8505,
-      "lon": 75.8030,
-      "type": "secondary_entry",
-      "description": "Secondary access road towards residential colony"
+    "gates": [
+      {
+        "id": "VG1",
+        "name": "Gate 1 (Main Entry)",
+        "lat": 17.6880,
+        "lon": 83.2185,
+        "type": "main_entry",
+        "description": "Main gate"
+      },
+      {
+        "id": "VG2",
+        "name": "Gate 2 (Side Entry)",
+        "lat": 17.6855,
+        "lon": 83.2170,
+        "type": "secondary_entry",
+        "description": "Side gate"
+      }
+    ],
+    "tanks": [
+      {
+        "id": "VT-1",
+        "name": "Crude Tank 1",
+        "lat": 17.6868,
+        "lon": 83.2185,
+        "fuel_type": "Crude",
+        "capacity": "5000T",
+        "storage_type": "tank",
+        "is_origin": true,
+        "description": "Origin tank"
+      },
+      {
+        "id": "VT-2",
+        "name": "Crude Tank 2",
+        "lat": 17.6875,
+        "lon": 83.2195,
+        "fuel_type": "Crude",
+        "capacity": "4000T",
+        "storage_type": "tank",
+        "is_origin": false,
+        "description": "Adjacent tank"
+      }
+    ]
+  },
+  "mangalore_mrpl": {
+    "facility_id": "MRPL_MANGALORE",
+    "plant_center": {
+      "lat": 12.8916,
+      "lon": 74.8430
     },
-    {
-      "id": "G3",
-      "name": "Gate 3 (South Utility)",
-      "lat": 26.8475,
-      "lon": 75.8069,
-      "type": "utility_entry",
-      "description": "Utility and maintenance vehicle entry"
+    "gates": [
+      {
+        "id": "MG1",
+        "name": "North Gate",
+        "lat": 12.8930,
+        "lon": 74.8430,
+        "type": "main_entry",
+        "description": "North access"
+      },
+      {
+        "id": "MG2",
+        "name": "South Gate",
+        "lat": 12.8900,
+        "lon": 74.8430,
+        "type": "secondary_entry",
+        "description": "South access"
+      }
+    ],
+    "tanks": [
+      {
+        "id": "MT-1",
+        "name": "Petrol Tank 1",
+        "lat": 12.8916,
+        "lon": 74.8430,
+        "fuel_type": "Petrol",
+        "capacity": "3000T",
+        "storage_type": "tank",
+        "is_origin": true,
+        "description": "Origin tank"
+      },
+      {
+        "id": "MT-2",
+        "name": "Petrol Tank 2",
+        "lat": 12.8920,
+        "lon": 74.8440,
+        "fuel_type": "Petrol",
+        "capacity": "2500T",
+        "storage_type": "tank",
+        "is_origin": false,
+        "description": "Adjacent tank"
+      }
+    ]
+  },
+  "bina_bpcl": {
+    "facility_id": "BPCL_BINA",
+    "plant_center": {
+      "lat": 24.1700,
+      "lon": 78.1800
     },
-    {
-      "id": "G4",
-      "name": "Gate 4 (East Siding)",
-      "lat": 26.8505,
-      "lon": 75.8110,
-      "type": "rail_siding",
-      "description": "Rail siding entry for tanker wagon operations"
-    }
-  ],
-  "tanks": [
-    {
-      "id": "T-101",
-      "name": "LPG Sphere T-101",
-      "lat": 26.8505,
-      "lon": 75.8069,
-      "fuel_type": "LPG",
-      "capacity": "1700T",
-      "storage_type": "sphere",
-      "is_origin": true,
-      "description": "Primary incident origin tank"
-    },
-    {
-      "id": "T-102",
-      "name": "LPG Sphere T-102",
-      "lat": 26.8512,
-      "lon": 75.8075,
-      "fuel_type": "LPG",
-      "capacity": "1200T",
-      "storage_type": "sphere",
-      "is_origin": false,
-      "description": "Adjacent LPG sphere - high domino risk"
-    },
-    {
-      "id": "P-201",
-      "name": "Petrol Tank P-201",
-      "lat": 26.8495,
-      "lon": 75.8055,
-      "fuel_type": "Petrol",
-      "capacity": "5000KL",
-      "storage_type": "tank",
-      "is_origin": false,
-      "description": "Petrol storage tank in south-west quadrant"
-    },
-    {
-      "id": "D-301",
-      "name": "Diesel Tank D-301",
-      "lat": 26.8485,
-      "lon": 75.8085,
-      "fuel_type": "Diesel",
-      "capacity": "8000KL",
-      "storage_type": "tank",
-      "is_origin": false,
-      "description": "Diesel storage tank in south-east quadrant"
-    }
-  ]
+    "gates": [
+      {
+        "id": "BG1",
+        "name": "Main Gate",
+        "lat": 24.1720,
+        "lon": 78.1800,
+        "type": "main_entry",
+        "description": "Main entrance"
+      },
+      {
+        "id": "BG2",
+        "name": "Utility Gate",
+        "lat": 24.1680,
+        "lon": 78.1800,
+        "type": "utility_entry",
+        "description": "Utility access"
+      }
+    ],
+    "tanks": [
+      {
+        "id": "BT-1",
+        "name": "LPG Sphere 1",
+        "lat": 24.1700,
+        "lon": 78.1800,
+        "fuel_type": "LPG",
+        "capacity": "1800T",
+        "storage_type": "sphere",
+        "is_origin": true,
+        "description": "Origin tank"
+      },
+      {
+        "id": "BT-2",
+        "name": "LPG Sphere 2",
+        "lat": 24.1710,
+        "lon": 78.1810,
+        "fuel_type": "LPG",
+        "capacity": "1500T",
+        "storage_type": "sphere",
+        "is_origin": false,
+        "description": "Adjacent tank"
+      }
+    ]
+  }
 }

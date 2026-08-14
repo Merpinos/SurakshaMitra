@@ -3,7 +3,7 @@ SurakshaMitra - Hazardous Industrial Facility Threat Zone Visualizer API
 FastAPI Backend
 """
 import math
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
@@ -33,6 +33,7 @@ app.add_middleware(
 
 
 class ZoneRequest(BaseModel):
+    facility_id: Optional[str] = Field(default=None, description="Facility ID (e.g. jaipur_iocl, custom)")
     lat: float = Field(..., description="Latitude of facility", example=26.8505)
     lon: float = Field(..., description="Longitude of facility", example=75.8069)
     fuel_type: str = Field(..., description="Fuel type (LPG, Petrol, Crude)", example="LPG")
@@ -194,6 +195,7 @@ def compute_zone(req: ZoneRequest) -> Dict[str, Any]:
 
         # --- Tactical Decision Engine ---
         tactical_summary = evaluate_tactical_situation(
+            facility_id=req.facility_id,
             origin_lat=req.lat,
             origin_lon=req.lon,
             mass_kg=req.mass_kg,

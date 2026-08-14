@@ -356,6 +356,7 @@ def _generate_action_cards(
 # ---------------------------------------------------------------------------
 
 def evaluate_tactical_situation(
+    facility_id: Optional[str],
     origin_lat: float,
     origin_lon: float,
     mass_kg: float,
@@ -369,6 +370,8 @@ def evaluate_tactical_situation(
 
     Parameters
     ----------
+    facility_id : str | None
+        The selected facility ID.
     origin_lat, origin_lon : float
         Coordinates of the incident origin.
     mass_kg : float
@@ -396,7 +399,21 @@ def evaluate_tactical_situation(
         zone_geometries[name] = shape(feat["geometry"])
 
     # Load facility assets
-    assets = _load_facility_assets()
+    all_assets = _load_facility_assets()
+    
+    if not facility_id or facility_id == "custom" or facility_id not in all_assets:
+        return {
+            "gate_access": [],
+            "domino_hazards": [],
+            "action_cards": [{
+                "card_type": "INFO",
+                "severity": "INFO",
+                "title": "Custom Location",
+                "directive": "Tactical copilot requires a known facility preset. Showing generic zones only."
+            }],
+        }
+        
+    assets = all_assets[facility_id]
 
     # Evaluate gates
     gate_assessments = _evaluate_gates(
