@@ -246,110 +246,77 @@ def _evaluate_domino_tanks(
 
 
 # ---------------------------------------------------------------------------
-# Plain-English Action Cards
+# Command Briefing
 # ---------------------------------------------------------------------------
 
-def _generate_action_cards(
+def _generate_command_briefing(
     gate_assessments: List[Dict],
     tank_assessments: List[Dict],
-    wind_speed: float,
     wind_dir: float,
-) -> List[Dict[str, str]]:
+    fireball_radius_m: float,
+    zone_features: List[Dict[str, Any]]
+) -> Dict[str, Any]:
     """
-    Generates human-readable tactical directive cards for the
-    Incident Commander's heads-up display.
+    Generates structured command briefing data for the military-grade HUD.
+    Returns an array of action cards and map logic variables.
     """
-    cards: List[Dict[str, str]] = []
-
-    # Card 1: Recommended approach route
-    safe_gates = [g for g in gate_assessments if g["status"] == "SAFE_ENTRY"]
-    compromised_gates = [g for g in gate_assessments if g["status"] == "COMPROMISED"]
-
-    if safe_gates:
-        best = safe_gates[0]
-        avoid_names = ", ".join(g["gate_name"] for g in compromised_gates)
-        cards.append({
-            "card_type": "APPROACH_ROUTE",
-            "severity": "INFO",
-            "title": f"Route via {best['gate_name']}",
-            "directive": (
-                f"Recommended entry point: {best['gate_name']} "
-                f"({best['distance_from_origin_m']}m from origin, "
-                f"{best['thermal_flux_kw_m2']} kW/m²). "
-                + (f"AVOID: {avoid_names}." if avoid_names else "All other gates are also accessible.")
-            ),
-        })
-    else:
-        caution_gates = [g for g in gate_assessments if g["status"] == "CAUTION"]
-        if caution_gates:
-            best = caution_gates[0]
-            cards.append({
-                "card_type": "APPROACH_ROUTE",
-                "severity": "WARNING",
-                "title": f"No fully safe gates — use {best['gate_name']} with caution",
-                "directive": (
-                    f"All gates are inside threat/plume zones. "
-                    f"Least hazardous option: {best['gate_name']} "
-                    f"({best['thermal_flux_kw_m2']} kW/m²). "
-                    f"Full PPE and SCBA mandatory."
-                ),
-            })
+    # 1. Calculate map variables
+    max_hazard_radius = 0.0
+    evac_radius = 0.0
+    for feat in zone_features:
+        name = feat["properties"].get("zone_name", "")
+        r = feat["properties"].get("radius_m", 0)
+        if name == "Dispersion Plume":
+            evac_radius = max(evac_radius, r)
         else:
-            cards.append({
-                "card_type": "APPROACH_ROUTE",
-                "severity": "CRITICAL",
-                "title": "ALL GATES COMPROMISED",
-                "directive": "All access gates fall within lethal/severe zones. Request aerial or remote approach.",
-            })
+            max_hazard_radius = max(max_hazard_radius, r)
 
-    # Card 2: Wind advisory
-    cardinal_dirs = [
-        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-        "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-    ]
-    wind_cardinal = cardinal_dirs[int((wind_dir % 360) / 22.5 + 0.5) % 16]
-    # Wind blows FROM wind_dir, so downwind is opposite
+    has_bleve_risk = any(t["domino_risk"] == "BLEVE_RISK" for t in tank_assessments) or fireball_radius_m > 0
+    staging_distance = max(800.0, max_hazard_radius + 100.0) if has_bleve_risk else max_hazard_radius + 100.0
+
+    # 2. Gate calculations
+    worst_gate = max(gate_assessments, key=lambda g: g["thermal_flux_kw_m2"]) if gate_assessments else None
+    best_gate = min(gate_assessments, key=lambda g: g["thermal_flux_kw_m2"]) if gate_assessments else None
+
+    # Card 1
+    card1 = {
+        "icon": "🟢",
+        "title": f"APPROACH CORRIDOR: DO NOT USE {worst_gate['gate_name'].upper()}" if worst_gate else "APPROACH CORRIDOR: UNKNOWN",
+        "context": f"Radiation: {worst_gate['thermal_flux_kw_m2']} kW/m2 | High Heat Plume Downwind" if worst_gate else "Radiation: Unknown | High Heat Plume Downwind",
+        "action": f"Reroute to {best_gate['gate_name']} | Radiation: {best_gate['thermal_flux_kw_m2']} kW/m2 (SAFE ZONE)" if best_gate else "Reroute to Unknown | Radiation: Unknown"
+    }
+
+    # 3. Tank calculations
+    worst_tank = max(tank_assessments, key=lambda t: t["thermal_flux_kw_m2"]) if tank_assessments else None
+
+    # Card 2
+    card2 = {
+        "icon": "🔴",
+        "title": "DOMINO CRISIS WARNING (BLEVE Threat)",
+        "context": f"{worst_tank['tank_name']} is {worst_tank['distance_from_origin_m']}m away, receiving {worst_tank['thermal_flux_kw_m2']} kW/m2 heat radiation." if worst_tank else "No tanks nearby.",
+        "action": f"Direct Monitor Cannon to cool {worst_tank['tank_name']} shell IMMEDIATELY." if worst_tank else "No action required."
+    }
+
+    # 4. Evac calculations
+    cardinal_dirs = ["North", "North-Northeast", "Northeast", "East-Northeast", "East", "East-Southeast", "Southeast", "South-Southeast", "South", "South-Southwest", "Southwest", "West-Southwest", "West", "West-Northwest", "Northwest", "North-Northwest"]
     downwind_deg = (wind_dir + 180) % 360
-    downwind_cardinal = cardinal_dirs[int(downwind_deg / 22.5 + 0.5) % 16]
+    downwind_cardinal = cardinal_dirs[int((downwind_deg % 360) / 22.5 + 0.5) % 16]
 
-    cards.append({
-        "card_type": "WIND_ADVISORY",
-        "severity": "WARNING",
-        "title": f"Wind from {wind_cardinal} at {wind_speed} m/s",
-        "directive": (
-            f"Vapor plume is dispersing towards {downwind_cardinal}. "
-            f"Approach from upwind ({wind_cardinal} side) whenever possible. "
-            f"Deploy vapor detection on {downwind_cardinal} perimeter."
-        ),
-    })
+    # Card 3
+    card3 = {
+        "icon": "🟠",
+        "title": "EVACUATION ZONE (Civilian Alert)",
+        "context": f"Toxic/Flammable Plume extending {round(evac_radius, 1)}m {downwind_cardinal}.",
+        "action": "Alert District Admin to evacuate downwind sectors immediately."
+    }
 
-    # Card 3: Domino cooling priorities
-    critical_tanks = [t for t in tank_assessments if t["domino_risk"] in ("BLEVE_RISK", "BOILOVER_RISK")]
-    if critical_tanks:
-        target_list = "; ".join(
-            f"{t['tank_name']} [{t['domino_risk']}] @ {t['distance_from_origin_m']}m"
-            for t in critical_tanks
-        )
-        cards.append({
-            "card_type": "COOLING_PRIORITY",
-            "severity": "CRITICAL",
-            "title": f"{len(critical_tanks)} tank(s) require immediate cooling",
-            "directive": (
-                f"Priority cooling targets: {target_list}. "
-                f"Deploy water monitors and deluge systems immediately. "
-                f"Monitor shell temperatures every 60 seconds."
-            ),
-        })
-    else:
-        cards.append({
-            "card_type": "COOLING_PRIORITY",
-            "severity": "INFO",
-            "title": "No immediate domino cooling required",
-            "directive": "All neighboring tanks are outside critical threat zones. Continue monitoring.",
-        })
+    best_gate_data = {"lat": best_gate["lat"], "lon": best_gate["lon"], "name": best_gate["gate_name"]} if best_gate else None
 
-    return cards
-
+    return {
+        "cards": [card1, card2, card3],
+        "best_gate": best_gate_data,
+        "staging_distance": round(staging_distance, 1)
+    }
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -405,12 +372,12 @@ def evaluate_tactical_situation(
         return {
             "gate_access": [],
             "domino_hazards": [],
-            "action_cards": [{
-                "card_type": "INFO",
-                "severity": "INFO",
-                "title": "Custom Location",
-                "directive": "Tactical copilot requires a known facility preset. Showing generic zones only."
-            }],
+            "command_briefing": {
+                "approach_direction": "Unknown",
+                "staging_distance": 0,
+                "cooling_targets": [],
+                "evacuation_radius": 0
+            },
         }
         
     assets = all_assets[facility_id]
@@ -435,16 +402,17 @@ def evaluate_tactical_situation(
         mass_kg=mass_kg,
     )
 
-    # Generate action cards
-    action_cards = _generate_action_cards(
+    # Generate command briefing
+    command_briefing = _generate_command_briefing(
         gate_assessments=gate_assessments,
         tank_assessments=tank_assessments,
-        wind_speed=wind_speed,
         wind_dir=wind_dir,
+        fireball_radius_m=fireball_radius_m,
+        zone_features=zone_features
     )
 
     return {
         "gate_access": gate_assessments,
         "domino_hazards": tank_assessments,
-        "action_cards": action_cards,
+        "command_briefing": command_briefing,
     }
