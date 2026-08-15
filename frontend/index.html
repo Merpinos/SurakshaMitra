@@ -6,8 +6,8 @@
   <title>SurakshaMitra — Hazardous Industrial Threat Zone Visualizer</title>
   <meta name="description" content="Visualizes blast threat zones and BLEVE fireball radii for petroleum and hazardous industrial storage facilities in India.">
   
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <!-- MapLibre GL JS -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 
   <!-- Inter Font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -295,17 +295,32 @@
       z-index: 1;
     }
 
-    /* Custom Leaflet Popup Styling */
-    .leaflet-popup-content-wrapper {
+    /* MapLibre Popup Dark Styling */
+    .maplibregl-popup-content {
       background: #1e293b !important;
       color: #f8fafc !important;
       border: 1px solid #334155;
       border-radius: 8px !important;
       box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+      padding: 12px 14px !important;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.82rem;
+      min-width: 200px;
     }
 
-    .leaflet-popup-tip {
-      background: #1e293b !important;
+    .maplibregl-popup-tip {
+      border-top-color: #1e293b !important;
+    }
+
+    .maplibregl-popup-close-button {
+      color: #94a3b8 !important;
+      font-size: 1.1rem !important;
+      padding: 4px 8px !important;
+    }
+
+    .maplibregl-ctrl-attrib {
+      font-size: 0.65rem !important;
+      opacity: 0.6;
     }
 
     .popup-title {
@@ -319,7 +334,6 @@
     .popup-row {
       font-size: 0.8rem;
       margin-bottom: 4px;
-
       color: #cbd5e1;
     }
 
@@ -480,7 +494,7 @@
 
       <div class="sidebar-section">
         <div class="section-title">
-          <span>Facility & Fuel Parameters</span>
+          <span>Facility &amp; Fuel Parameters</span>
         </div>
         <form id="threat_form" onsubmit="submitCalculation(event)">
           <div class="form-row">
@@ -619,8 +633,8 @@
     </div>
   </div>
 
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- MapLibre GL JS -->
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <script>
     // Hardcoded facility presets
@@ -632,9 +646,21 @@
     };
 
     let map;
-    let geoJsonLayer = null;
-    let facilityMarker = null;
-    let evacLayers = [];
+    let facilityMarkerObj = null;  // maplibregl.Marker
+    let evacMarkers = [];          // maplibregl.Marker[]
+    let evacLayerIds = [];         // string[] — source IDs for cleanup
+    const zoneSourceId = 'threat-zones';
+
+    // ----------------------------------------------------------------
+    // HELPER: Safely remove a MapLibre source and its associated layers
+    // ----------------------------------------------------------------
+    function safeRemove(id) {
+      const layerIds = [id + '-fill', id + '-line', id + '-fill-line', id];
+      layerIds.forEach(lid => {
+        if (map.getLayer(lid)) map.removeLayer(lid);
+      });
+      if (map.getSource(id)) map.removeSource(id);
+    }
 
     function bearingToCompass(deg) {
       const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
@@ -661,10 +687,19 @@
       };
     }
 
+    // ----------------------------------------------------------------
+    // fetchAndDrawRoute — MapLibre GeoJSON line + Marker
+    // Returns { sourceId, marker } for cleanup tracking
+    // ----------------------------------------------------------------
     async function fetchAndDrawRoute(originLat, originLon, destLat, destLon, label, color) {
+      const sourceId = 'route-' + label.replace(/\s+/g, '-').toLowerCase();
+
       const url = `https://router.project-osrm.org/route/v1/driving/` +
         `${originLon},${originLat};${destLon},${destLat}` +
         `?overview=full&geometries=geojson`;
+
+      let routeCoords;  // [[lng, lat], ...] — GeoJSON order, correct for MapLibre
+      let isFallback = false;
 
       try {
         const res  = await fetch(url);
@@ -674,78 +709,65 @@
           throw new Error('OSRM non-Ok status or empty route array');
         }
 
-        const route    = data.routes[0];
-        const coords   = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-        const dist_km  = (route.distance / 1000).toFixed(1);
-        const time_min = Math.round(route.duration / 60);
-
-        const line = L.polyline(coords, {
-          color:     color,
-          weight:    4,
-          opacity:   0.85,
-          dashArray: null
-        }).addTo(map);
-
-        line.bindTooltip(
-          `<strong>${label}</strong><br>${dist_km} km · ~${time_min} min by road`,
-          { sticky: true }
-        );
-
-        // Destination marker
-        const destIcon = L.divIcon({
-          html: `<div style="
-            background: ${color};
-            color: white;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 3px 7px;
-            border-radius: 10px;
-            white-space: nowrap;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-          ">${label}</div>`,
-          className: '',
-          iconAnchor: [30, 10]
-        });
-        const destMarker = L.marker([destLat, destLon], { icon: destIcon }).addTo(map);
-
-        return { line, destMarker, dist_km, time_min, label };
+        // OSRM returns [lng, lat] coordinates — already correct for MapLibre GeoJSON
+        routeCoords = data.routes[0].geometry.coordinates;
       } catch (err) {
         console.warn('OSRM unreachable — drawing straight-line fallback for', label, err);
-        const fallback = L.polyline(
-          [[originLat, originLon], [destLat, destLon]],
-          { color: color, weight: 3, opacity: 0.65, dashArray: '8 6' }
-        ).addTo(map);
-        fallback.bindTooltip(`<strong>${label}</strong> (straight-line estimate — road data unavailable)`);
-        
-        const destIcon = L.divIcon({
-          html: `<div style="
-            background: ${color};
-            color: white;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 3px 7px;
-            border-radius: 10px;
-            white-space: nowrap;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-          ">${label}</div>`,
-          className: '',
-          iconAnchor: [30, 10]
-        });
-        const destMarker = L.marker([destLat, destLon], { icon: destIcon }).addTo(map);
-
-        return { line: fallback, destMarker, label };
+        isFallback = true;
+        // Straight-line: [lng, lat] order
+        routeCoords = [[originLon, originLat], [destLon, destLat]];
       }
+
+      // Add line source + layer
+      safeRemove(sourceId);
+      map.addSource(sourceId, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: routeCoords }
+        }
+      });
+      map.addLayer({
+        id: sourceId,
+        type: 'line',
+        source: sourceId,
+        paint: {
+          'line-color': color,
+          'line-width': 4,
+          'line-opacity': isFallback ? 0.65 : 0.85,
+          ...(isFallback ? { 'line-dasharray': [8, 6] } : {})
+        }
+      });
+
+      // Destination label marker
+      const labelEl = document.createElement('div');
+      labelEl.style.cssText = `
+        background: ${color}; color: white; font-size: 11px; font-weight: 600;
+        padding: 3px 7px; border-radius: 10px; white-space: nowrap;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.3); font-family: 'Inter', sans-serif;
+      `;
+      labelEl.textContent = label + (isFallback ? ' (est.)' : '');
+
+      const marker = new maplibregl.Marker({ element: labelEl })
+        .setLngLat([destLon, destLat])   // [lng, lat]
+        .addTo(map);
+
+      return { sourceId, marker };
     }
 
+    // ----------------------------------------------------------------
+    // drawEvacuationRoutes — MapLibre version
+    // ----------------------------------------------------------------
     async function drawEvacuationRoutes(facilityLat, facilityLon, wind_dir) {
-      // Clear previous evacuation routes
-      evacLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
-      evacLayers = [];
+      // Clear previous evacuation layers and markers
+      evacMarkers.forEach(m => { try { m.remove(); } catch(e){} });
+      evacMarkers = [];
+      evacLayerIds.forEach(id => { try { safeRemove(id); } catch(e){} });
+      evacLayerIds = [];
 
       // Upwind = safe direction (away from plume)
-      const upwind = wind_dir; // wind comes FROM this direction → evacuate TOWARD it
+      const upwind = wind_dir;
 
-      // 3 destination points: straight upwind + ±35° spread, 5km out
       const destinations = [
         { bearing: upwind,                      label: 'Evac Point A (Upwind)', color: '#22c55e' },
         { bearing: (upwind - 35 + 360) % 360,   label: 'Evac Point B (-35°)',   color: '#3b82f6' },
@@ -764,32 +786,28 @@
         );
       }));
 
-      // Collect layers for later cleanup
+      // Collect refs for later cleanup
       results.forEach(r => {
         if (!r) return;
-        if (r.line) evacLayers.push(r.line);
-        if (r.destMarker) evacLayers.push(r.destMarker);
+        if (r.sourceId) evacLayerIds.push(r.sourceId);
+        if (r.marker)   evacMarkers.push(r.marker);
       });
 
-      // Draw facility origin marker (red pin = danger point)
-      const originIcon = L.divIcon({
-        html: `<div style="
-          width: 14px; height: 14px;
-          background: #dc2626;
-          border: 2px solid white;
-          border-radius: 50%;
-          box-shadow: 0 0 0 2px #dc2626;
-        "></div>`,
-        className: '',
-        iconSize: [14, 14],
-        iconAnchor: [7, 7]
-      });
-      const originMarker = L.marker([facilityLat, facilityLon], { icon: originIcon })
-        .addTo(map)
-        .bindTooltip('Incident site — do not approach from downwind');
-      evacLayers.push(originMarker);
+      // Origin pin — red danger marker
+      const originEl = document.createElement('div');
+      originEl.style.cssText = `
+        width: 14px; height: 14px; background: #dc2626;
+        border: 2px solid white; border-radius: 50%;
+        box-shadow: 0 0 0 3px rgba(220,38,38,0.4);
+      `;
+      const originMarker = new maplibregl.Marker({ element: originEl })
+        .setLngLat([facilityLon, facilityLat])  // [lng, lat]
+        .setPopup(new maplibregl.Popup({ offset: 14 }).setHTML(
+          '<strong>Incident site</strong><br>Do not approach from downwind'
+        ))
+        .addTo(map);
+      evacMarkers.push(originMarker);
 
-      // Update status
       const successful = results.filter(Boolean).length;
       if (statusEl) {
         statusEl.textContent = successful > 0
@@ -798,28 +816,418 @@
       }
     }
 
-    // Initialize Map
+    // ----------------------------------------------------------------
+    // Math-Based CAD Grid Generator (Replaces demo_factory.geojson)
+    // ----------------------------------------------------------------
+    function generateStrictPlantGrid(centerLat, centerLon, uiParams) {
+      const features = [];
+      
+      const mToDlat = (m) => m / 111000;
+      const mToDlon = (m, lat) => m / (111000 * Math.cos(lat * Math.PI / 180));
+
+      const rx = 300; // East-West radius (600m wide)
+      const ry = 200; // North-South radius (400m tall)
+
+      const dLatRy = mToDlat(ry);
+      const dLonRx = mToDlon(rx, centerLat);
+
+      const C = [centerLon, centerLat];
+      const N_mid = [centerLon, centerLat + dLatRy];
+      const S_mid = [centerLon, centerLat - dLatRy];
+      const E_mid = [centerLon + dLonRx, centerLat];
+      const W_mid = [centerLon - dLonRx, centerLat];
+      const NW = [centerLon - dLonRx, centerLat + dLatRy];
+      const NE = [centerLon + dLonRx, centerLat + dLatRy];
+      const SE = [centerLon + dLonRx, centerLat - dLatRy];
+      const SW = [centerLon - dLonRx, centerLat - dLatRy];
+
+      // 1. Boundary Wall
+      features.push({
+        type: 'Feature',
+        properties: { type: 'wall', name: 'Plant Boundary Wall' },
+        geometry: { type: 'Polygon', coordinates: [[NW, NE, SE, SW, NW]] }
+      });
+
+      // 2. Roads (N-S spine, E-W spine, Perimeter)
+      features.push({
+        type: 'Feature',
+        properties: { type: 'road', name: 'N-S Service Road' },
+        geometry: { type: 'LineString', coordinates: [N_mid, C, S_mid] }
+      });
+      features.push({
+        type: 'Feature',
+        properties: { type: 'road', name: 'E-W Service Road' },
+        geometry: { type: 'LineString', coordinates: [W_mid, C, E_mid] }
+      });
+      features.push({
+        type: 'Feature',
+        properties: { type: 'road', name: 'Perimeter Road' },
+        geometry: { type: 'LineString', coordinates: [NW, N_mid, NE, E_mid, SE, S_mid, SW, W_mid, NW] }
+      });
+
+      // 3. Gates
+      features.push({
+        type: 'Feature',
+        properties: { type: 'gate', name: 'Gate 1 (North)', description: 'Main Access' },
+        geometry: { type: 'Point', coordinates: N_mid }
+      });
+      features.push({
+        type: 'Feature',
+        properties: { type: 'gate', name: 'Gate 2 (South)', description: 'Emergency Exit' },
+        geometry: { type: 'Point', coordinates: S_mid }
+      });
+
+      // 4. Tanks
+      const xOffsets = [-150, -50, 50, 150];
+      const yOffsets = [-100, -33.3, 33.3, 100];
+      const tanks = [];
+      let min_dist = Infinity;
+      let epicenter_idx = -1;
+
+      for (let x of xOffsets) {
+        for (let y of yOffsets) {
+          // Avoid the exact center lines so tanks don't overlap the cross roads
+          const tLon = centerLon + mToDlon(x, centerLat);
+          const tLat = centerLat + mToDlat(y);
+          
+          const dist = Math.sqrt(x*x + y*y);
+
+          const r_m = 15;
+          const ring = [];
+          const steps = 32;
+          for (let i = 0; i < steps; i++) {
+            const a = (2 * Math.PI * i) / steps;
+            ring.push([
+              tLon + mToDlon(r_m * Math.cos(a), tLat),
+              tLat + mToDlat(r_m * Math.sin(a))
+            ]);
+          }
+          ring.push(ring[0]);
+
+          tanks.push({
+            type: 'Feature',
+            properties: {
+              type: 'tank',
+              name: 'Storage Tank',
+              is_epicenter: false,
+              fuelType: uiParams.fuelType,
+              storageType: uiParams.storageType,
+              massKg: uiParams.massKg
+            },
+            geometry: { type: 'Polygon', coordinates: [ring] }
+          });
+
+          if (dist < min_dist) {
+            min_dist = dist;
+            epicenter_idx = tanks.length - 1;
+          }
+        }
+      }
+
+      if (epicenter_idx >= 0) {
+        tanks[epicenter_idx].properties.is_epicenter = true;
+      }
+
+      features.push(...tanks);
+      return { type: 'FeatureCollection', features };
+    }
+
+    // ----------------------------------------------------------------
+    // loadProceduralFactory — renders the math-based digital twin
+    // ----------------------------------------------------------------
+    function loadProceduralFactory(lat, lon) {
+      const SOURCE = 'demo-factory-source';
+
+      ['demo-wall', 'demo-road', 'demo-tank', 'demo-gate'].forEach(id => {
+        if (map.getLayer(id)) map.removeLayer(id);
+      });
+      if (map.getSource(SOURCE)) map.removeSource(SOURCE);
+
+      const fuelType = document.getElementById('fuel_type')?.value || 'N/A';
+      const storageType = document.getElementById('storage_type')?.value || 'N/A';
+      const massKg = document.getElementById('mass_kg')?.value || '0';
+
+      const data = generateStrictPlantGrid(lat, lon, { fuelType, storageType, massKg });
+
+      map.addSource(SOURCE, { type: 'geojson', data });
+
+      // --- Perimeter Wall (line) ---
+      map.addLayer({
+        id: 'demo-wall',
+        type: 'line',
+        source: SOURCE,
+        filter: ['==', ['get', 'type'], 'wall'],
+        paint: {
+          'line-color': '#ef4444',
+          'line-width': 3,
+          'line-opacity': 0.9
+        }
+      });
+
+      // --- Internal Service Roads (dashed line) ---
+      map.addLayer({
+        id: 'demo-road',
+        type: 'line',
+        source: SOURCE,
+        filter: ['==', ['get', 'type'], 'road'],
+        paint: {
+          'line-color': '#94a3b8',
+          'line-width': 2,
+          'line-opacity': 0.7,
+          'line-dasharray': [2, 1]
+        }
+      });
+
+      // --- Storage Tank 3D Extrusions (Impact Logic) ---
+      map.addLayer({
+        id: 'demo-tank',
+        type: 'fill-extrusion',
+        source: SOURCE,
+        filter: ['==', ['get', 'type'], 'tank'],
+        paint: {
+          'fill-extrusion-color': ['case', ['==', ['get', 'is_epicenter'], true], '#dc2626', '#64748b'],
+          'fill-extrusion-height': ['case', ['==', ['get', 'is_epicenter'], true], 25, 18],
+          'fill-extrusion-base': 0,
+          'fill-extrusion-opacity': 0.9
+        }
+      });
+
+      // --- Gate Markers (circle layer) ---
+      map.addLayer({
+        id: 'demo-gate',
+        type: 'circle',
+        source: SOURCE,
+        filter: ['==', ['get', 'type'], 'gate'],
+        paint: {
+          'circle-color': '#39ff14',
+          'circle-radius': 6,
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+          'circle-opacity': 1
+        }
+      });
+
+      // Click popups on tanks
+      map.on('click', 'demo-tank', (e) => {
+        const p = e.features[0]?.properties || {};
+        if (p.is_epicenter) {
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`
+              <div class="popup-title" style="color: #ef4444;">🚨 IMPACT SOURCE TANK</div>
+              <div class="popup-row"><strong>Fuel Type:</strong> ${p.fuelType}</div>
+              <div class="popup-row"><strong>Storage Type:</strong> ${p.storageType}</div>
+              <div class="popup-row"><strong>Mass:</strong> ${parseFloat(p.massKg).toLocaleString()} kg</div>
+            `)
+            .addTo(map);
+        } else {
+          new maplibregl.Popup()
+            .setLngLat(e.lngLat)
+            .setHTML(`<div class="popup-title">🛢 Storage Tank</div>`)
+            .addTo(map);
+        }
+      });
+
+      // Click popups on gates
+      map.on('click', 'demo-gate', (e) => {
+        const p = e.features[0]?.properties || {};
+        new maplibregl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div class="popup-title">🚧 ${p.name}</div>
+            <div class="popup-row">${p.description || ''}</div>
+          `)
+          .addTo(map);
+      });
+
+      ['demo-tank', 'demo-gate'].forEach(layer => {
+        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+      });
+
+      _demoFactoryData = data;
+      console.info('[ProceduralFactory] Digital twin loaded:', data.features.length, 'features');
+    }
+
+    // ----------------------------------------------------------------
+    // fetchFacility3DAssets — Overpass API raw GIS extractor
+    // Queries OSM for building + storage_tank ways within 1500m radius
+    // and renders them as a 3D fill-extrusion layer on MapLibre.
+    // ----------------------------------------------------------------
+    async function fetchFacility3DAssets(lat, lon) {
+      const overpassUrl = 'https://overpass-api.de/api/interpreter';
+
+      // Overpass QL: fetch ways tagged as building OR man_made=storage_tank
+      // within 1500m of the facility centre. 'out geom' returns node geometry
+      // inline so we can build GeoJSON polygons without a second lookup.
+      const query = `
+[out:json][timeout:25];
+(
+  way["building"](around:1500,${lat},${lon});
+  way["man_made"="storage_tank"](around:1500,${lat},${lon});
+  relation["building"](around:1500,${lat},${lon});
+);
+out geom;
+      `.trim();
+
+      // Clean up any previous Overpass layer
+      try { safeRemove('facility-3d'); } catch(e) {}
+
+      let geojsonFeatures = [];
+
+      try {
+        const res = await fetch(overpassUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'data=' + encodeURIComponent(query)
+        });
+
+        if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+        const data = await res.json();
+
+        // Convert Overpass elements → GeoJSON Polygon features
+        (data.elements || []).forEach(el => {
+          // Only process ways with inline geometry (node coordinates)
+          if (el.type !== 'way' || !el.geometry || el.geometry.length < 3) return;
+
+          // Close the ring if needed
+          const coords = el.geometry.map(n => [n.lon, n.lat]);  // [lng, lat]
+          const first = coords[0];
+          const last  = coords[coords.length - 1];
+          if (first[0] !== last[0] || first[1] !== last[1]) {
+            coords.push([...first]);
+          }
+
+          const tags = el.tags || {};
+          const isTank = tags['man_made'] === 'storage_tank';
+
+          // Height resolution: OSM tag → type default → 15m floor
+          let height = parseFloat(tags['height'] || tags['building:height'] || 0);
+          if (!height || isNaN(height)) {
+            height = isTank ? 20 : 15;
+          }
+
+          geojsonFeatures.push({
+            type: 'Feature',
+            properties: {
+              osm_id:    el.id,
+              feature_type: isTank ? 'storage_tank' : 'building',
+              name:      tags['name'] || (isTank ? 'Storage Tank' : 'Building'),
+              height:    height,
+              osm_tags:  JSON.stringify(tags)
+            },
+            geometry: {
+              type: 'Polygon',
+              coordinates: [coords]
+            }
+          });
+        });
+
+        console.info(`[Overpass] Fetched ${geojsonFeatures.length} features near (${lat}, ${lon})`);
+      } catch (err) {
+        console.warn('[Overpass] GIS asset fetch failed — skipping 3D overlay:', err);
+        return;  // Non-fatal: map still functional without OSM extrusions
+      }
+
+      if (!geojsonFeatures.length) {
+        console.info('[Overpass] No building/tank features found in this area.');
+        return;
+      }
+
+      // Add source + 3D fill-extrusion layer
+      map.addSource('facility-3d', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: geojsonFeatures }
+      });
+
+      map.addLayer({
+        id: 'facility-3d',
+        type: 'fill-extrusion',
+        source: 'facility-3d',
+        paint: {
+          // Industrial metallic slate — distinct from the dark Carto building base
+          'fill-extrusion-color': [
+            'match', ['get', 'feature_type'],
+            'storage_tank', '#64748b',   // lighter steel for tanks
+            '#334155'                     // dark slate for buildings
+          ],
+          'fill-extrusion-height':  ['get', 'height'],
+          'fill-extrusion-base':    0,
+          'fill-extrusion-opacity': 0.85
+        }
+      });
+
+      // Click popup on extruded features
+      map.on('click', 'facility-3d', (e) => {
+        const p = e.features[0]?.properties || {};
+        new maplibregl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(`
+            <div class="popup-title">🏗 ${p.name || p.feature_type}</div>
+            <div class="popup-row"><strong>Type:</strong> ${p.feature_type}</div>
+            <div class="popup-row"><strong>Height:</strong> ${p.height} m</div>
+            <div class="popup-row"><strong>OSM ID:</strong> ${p.osm_id}</div>
+          `)
+          .addTo(map);
+      });
+      map.on('mouseenter', 'facility-3d', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'facility-3d', () => { map.getCanvas().style.cursor = ''; });
+    }
+
+    // ----------------------------------------------------------------
+    // initMap — MapLibre GL JS with 3D pitch and dark-matter style
+    // ----------------------------------------------------------------
     function initMap() {
-      // Centered on India
-      map = L.map('map', {
-        zoomControl: true
-      }).setView([20.5937, 78.9629], 5);
+      map = new maplibregl.Map({
+        container: 'map',
+        style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+        center: [75.8069, 26.8505],   // [lng, lat] — Jaipur IOCL
+        zoom: 5,
+        pitch: 60,
+        bearing: -20,
+        antialias: true
+      });
 
-      // OpenStreetMap tiles
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | SurakshaMitra'
-      }).addTo(map);
+      // Add navigation controls (zoom, compass, pitch reset)
+      map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-      setTimeout(() => { if (map) map.invalidateSize(); }, 100);
-      setTimeout(() => { if (map) map.invalidateSize(); }, 500);
+      // 3D Building Extrusions — fire after style is fully loaded
+      map.on('load', () => {
+        // Attempt to add 3D buildings using Carto's bundled building source-layer
+        try {
+          map.addLayer({
+            id: '3d-buildings',
+            source: 'carto',
+            'source-layer': 'building',
+            type: 'fill-extrusion',
+            minzoom: 14,
+            paint: {
+              'fill-extrusion-color': '#1a2744',
+              'fill-extrusion-height': [
+                'coalesce',
+                ['get', 'render_height'],
+                ['get', 'height'],
+                15
+              ],
+              'fill-extrusion-base': [
+                'coalesce',
+                ['get', 'min_height'],
+                0
+              ],
+              'fill-extrusion-opacity': 0.78
+            }
+          });
+        } catch (e) {
+          console.warn('3D buildings layer could not be added:', e);
+        }
 
-      // Trigger initial demo calculation
-      submitCalculation();
+        // Trigger initial demo calculation AFTER style is loaded
+        submitCalculation();
+      });
     }
 
     window.addEventListener('resize', () => {
-      if (map) map.invalidateSize();
+      if (map) map.resize();
     });
 
     function toggleWeatherInputs() {
@@ -942,89 +1350,322 @@
       }
     }
 
+    // ----------------------------------------------------------------
+    // renderGeoJson — MapLibre GeoJSON Source + Layer API
+    // ----------------------------------------------------------------
     function renderGeoJson(geojson, targetLat, targetLon) {
-      // Clear existing layers
-      if (geoJsonLayer) {
-        map.removeLayer(geoJsonLayer);
-      }
-      if (facilityMarker) {
-        map.removeLayer(facilityMarker);
-      }
-      evacLayers.forEach(l => { try { map.removeLayer(l); } catch(e){} });
-      evacLayers = [];
+      // 1. Remove stale threat zone layers/source
+      try { safeRemove(zoneSourceId); } catch(e) {}
 
-      // Add facility marker
-      const facilityPos = [targetLat || geojson.metadata?.facility?.lat || 26.8505, targetLon || geojson.metadata?.facility?.lon || 75.8069];
-      facilityMarker = L.marker(facilityPos, {
-        title: "Facility Location"
-      }).addTo(map);
-      
+      // 2. Remove stale facility marker
+      if (facilityMarkerObj) { facilityMarkerObj.remove(); facilityMarkerObj = null; }
+
+      // 3. Remove stale evac layers and markers
+      evacMarkers.forEach(m => { try { m.remove(); } catch(e){} });
+      evacMarkers = [];
+      evacLayerIds.forEach(id => { try { safeRemove(id); } catch(e){} });
+      evacLayerIds = [];
+
+      const facilityLat = targetLat || geojson.metadata?.facility?.lat || 26.8505;
+      const facilityLon = targetLon || geojson.metadata?.facility?.lon || 75.8069;
       const meta = geojson.metadata?.facility || {};
-      facilityMarker.bindPopup(`
-        <div class="popup-title">🏭 Facility Center Point</div>
-        <div class="popup-row"><strong>Lat/Lon:</strong> ${facilityPos[0]}°, ${facilityPos[1]}°</div>
-        <div class="popup-row"><strong>Fuel Type:</strong> ${meta.fuel_type || 'N/A'}</div>
-        <div class="popup-row"><strong>Fuel Mass:</strong> ${(meta.mass_kg || 0).toLocaleString()} kg</div>
-        <div class="popup-row"><strong>TNT Equivalent:</strong> ${(meta.tnt_equivalent_kg || 0).toLocaleString()} kg</div>
-      `);
 
-      // Add GeoJSON Layer with style and popup binding
-      geoJsonLayer = L.geoJSON(geojson, {
-        style: function (feature) {
-          const props = feature.properties || {};
-          return {
-            color: props.color || '#3b82f6',
-            fillColor: props.fill_color || '#3b82f6',
-            fillOpacity: props.fill_opacity || 0.35,
-            weight: 2,
-            opacity: 0.85
-          };
-        },
-        onEachFeature: function (feature, layer) {
-          const props = feature.properties || {};
-          const radiusText = props.radius_m ? `${props.radius_m.toLocaleString()} m` : 'N/A';
-          
-          let popupContent = `
-            <div class="popup-title" style="color: ${props.color || '#fff'}">
-              ${props.zone_name || 'Threat Zone'}
-            </div>
-            <div class="popup-row"><strong>Radius:</strong> ${radiusText}</div>
-            <div class="popup-row"><strong>Threshold / Overpressure:</strong> ${props.overpressure_kpa || 'N/A'}</div>
-          `;
+      // 4. Facility marker — pulsing red dot via custom HTML element
+      const facilityEl = document.createElement('div');
+      facilityEl.style.cssText = `
+        width: 14px; height: 14px; background: #dc2626;
+        border: 2px solid white; border-radius: 50%;
+        box-shadow: 0 0 0 4px rgba(220,38,38,0.3);
+        cursor: pointer;
+      `;
+      facilityMarkerObj = new maplibregl.Marker({ element: facilityEl })
+        .setLngLat([facilityLon, facilityLat])   // [lng, lat]
+        .setPopup(new maplibregl.Popup({ offset: 14 }).setHTML(`
+          <div class="popup-title">🏭 Facility Center Point</div>
+          <div class="popup-row"><strong>Lat/Lon:</strong> ${facilityLat}°, ${facilityLon}°</div>
+          <div class="popup-row"><strong>Fuel Type:</strong> ${meta.fuel_type || 'N/A'}</div>
+          <div class="popup-row"><strong>Fuel Mass:</strong> ${(meta.mass_kg || 0).toLocaleString()} kg</div>
+          <div class="popup-row"><strong>TNT Equivalent:</strong> ${(meta.tnt_equivalent_kg || 0).toLocaleString()} kg</div>
+        `))
+        .addTo(map);
 
-          if (props.wind_speed_ms !== undefined) {
-            popupContent += `<div class="popup-row"><strong>Downwind Speed:</strong> ${props.wind_speed_ms} m/s</div>`;
-            popupContent += `<div class="popup-row"><strong>Wind Direction:</strong> ${props.wind_dir_deg}°</div>`;
-          }
-
-          layer.bindPopup(popupContent);
-        }
-      }).addTo(map);
-
-      // Fit map bounds to zones
-      if (geoJsonLayer.getBounds().isValid()) {
-        map.fitBounds(geoJsonLayer.getBounds(), { padding: [30, 30] });
+      // 4b. Load 3D assets — local digital twin for Jaipur, Overpass for all others
+      const JAIPUR_LAT = 26.8505, JAIPUR_LON = 75.8069;
+      const isJaipur = (Math.abs(facilityLat - JAIPUR_LAT) < 0.0005 &&
+                        Math.abs(facilityLon - JAIPUR_LON) < 0.0005);
+      if (isJaipur) {
+        loadProceduralFactory(facilityLat, facilityLon);
+      } else {
+        _demoFactoryData = null;   // clear cache — Dijkstra only runs for Jaipur
+        fetchFacility3DAssets(facilityLat, facilityLon);
       }
 
-      // Draw evacuation routes in upwind safe direction
+      // 5. Add threat zone GeoJSON source
+      map.addSource(zoneSourceId, {
+        type: 'geojson',
+        data: geojson
+      });
+
+      // Fill layer — zone polygons
+      map.addLayer({
+        id: zoneSourceId + '-fill',
+        type: 'fill',
+        source: zoneSourceId,
+        paint: {
+          'fill-color': ['get', 'fill_color'],
+          'fill-opacity': ['get', 'fill_opacity']
+        }
+      });
+
+      // Line layer — zone borders
+      map.addLayer({
+        id: zoneSourceId + '-line',
+        type: 'line',
+        source: zoneSourceId,
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 2,
+          'line-opacity': 0.85
+        }
+      });
+
+      // 6. Click popup on fill layer — anchored at e.lngLat (click coordinate)
+      map.on('click', zoneSourceId + '-fill', (e) => {
+        const props = e.features[0]?.properties || {};
+        const radiusText = props.radius_m
+          ? `${Number(props.radius_m).toLocaleString()} m`
+          : 'N/A';
+
+        let html = `
+          <div class="popup-title" style="color:${props.color || '#fff'}">
+            ${props.zone_name || 'Threat Zone'}
+          </div>
+          <div class="popup-row"><strong>Radius:</strong> ${radiusText}</div>
+          <div class="popup-row"><strong>Threshold / Overpressure:</strong> ${props.overpressure_kpa || 'N/A'}</div>
+        `;
+        if (props.wind_speed_ms != null) {
+          html += `<div class="popup-row"><strong>Downwind Speed:</strong> ${props.wind_speed_ms} m/s</div>`;
+          html += `<div class="popup-row"><strong>Wind Direction:</strong> ${props.wind_dir_deg}°</div>`;
+        }
+
+        new maplibregl.Popup()
+          .setLngLat(e.lngLat)      // anchored at actual click point
+          .setHTML(html)
+          .addTo(map);
+      });
+
+      map.on('mouseenter', zoneSourceId + '-fill', () => {
+        map.getCanvas().style.cursor = 'pointer';
+      });
+      map.on('mouseleave', zoneSourceId + '-fill', () => {
+        map.getCanvas().style.cursor = '';
+      });
+
+      // 7. Manual bounds calculation — iterate all feature coordinates
+      const bounds = new maplibregl.LngLatBounds();
+      (geojson.features || []).forEach(f => {
+        const geom = f.geometry;
+        if (!geom || !geom.coordinates) return;
+        let rings;
+        if (geom.type === 'Polygon') {
+          rings = geom.coordinates[0];
+        } else if (geom.type === 'MultiPolygon') {
+          rings = geom.coordinates.flat(2);
+        } else {
+          rings = geom.coordinates;
+        }
+        rings.forEach(coord => {
+          // GeoJSON coords are [lng, lat]
+          if (Array.isArray(coord) && coord.length >= 2) {
+            bounds.extend([coord[0], coord[1]]);
+          }
+        });
+      });
+
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 40, maxZoom: 17 });
+      }
+
+      // 8. Draw evacuation routes in upwind safe direction
       const windDir = meta.wind_dir !== undefined
         ? meta.wind_dir
         : parseFloat(document.getElementById('wind_dir').value) || 315;
 
-      drawEvacuationRoutes(facilityPos[0], facilityPos[1], windDir);
+      drawEvacuationRoutes(facilityLat, facilityLon, windDir);
 
-      // Render tactical panel if command_briefing is present
+      // 9. Render tactical panel if command_briefing is present
       if (geojson.tactical_summary && geojson.tactical_summary.command_briefing) {
-        renderTacticalPanel(geojson.tactical_summary, facilityPos);
+        renderTacticalPanel(geojson.tactical_summary, [facilityLat, facilityLon]);
       }
+    }
+
+    // ================================================================
+    // GRAPH ROUTING ENGINE (Dijkstra on road network)
+    // ================================================================
+
+    // Module-level cache: populated by loadDemoFactory() so renderTacticalPanel
+    // can access the road network without re-fetching.
+    let _demoFactoryData = null;
+
+    /**
+     * buildRoadGraph(geojson)
+     * Filters road features from a GeoJSON FeatureCollection and builds an
+     * adjacency list keyed by stringified [lon, lat] coordinate pairs.
+     * Consecutive points along each road segment are connected bidirectionally
+     * with Euclidean distance as the edge weight.
+     *
+     * Returns: { nodes: Set<string>, edges: Map<string, [{node, dist}]> }
+     */
+    function buildRoadGraph(geojson) {
+      const edges = new Map();  // nodeKey → [{node: nodeKey, dist: number}]
+      const nodes = new Set();
+
+      function addEdge(aKey, bKey, dist) {
+        if (!edges.has(aKey)) edges.set(aKey, []);
+        if (!edges.has(bKey)) edges.set(bKey, []);
+        edges.get(aKey).push({ node: bKey, dist });
+        edges.get(bKey).push({ node: aKey, dist });
+        nodes.add(aKey);
+        nodes.add(bKey);
+      }
+
+      function coordKey(c) { return `${c[0].toFixed(7)},${c[1].toFixed(7)}`; }
+
+      function processCoordArray(coords) {
+        for (let i = 0; i < coords.length - 1; i++) {
+          const a = coords[i], b = coords[i + 1];
+          const aKey = coordKey(a), bKey = coordKey(b);
+          // Euclidean proxy distance (deg ² — sufficient for shortest-path ordering)
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          addEdge(aKey, bKey, dist);
+        }
+      }
+
+      (geojson.features || []).forEach(f => {
+        if (f.properties?.type !== 'road') return;
+        const geom = f.geometry;
+        if (!geom) return;
+        if (geom.type === 'LineString') {
+          processCoordArray(geom.coordinates);
+        } else if (geom.type === 'MultiLineString') {
+          geom.coordinates.forEach(processCoordArray);
+        }
+      });
+
+      return { nodes, edges };
+    }
+
+    /**
+     * dijkstra(edges, startKey, endKey)
+     * Priority-queue Dijkstra on the adjacency list produced by buildRoadGraph.
+     * Returns an ordered array of nodeKey strings representing the shortest path,
+     * or null if no path exists.
+     */
+    function dijkstra(edges, startKey, endKey) {
+      if (startKey === endKey) return [startKey];
+
+      const dist   = new Map();
+      const prev   = new Map();
+      const visited = new Set();
+      // Simple min-heap via sorted array (graph is small — <1000 nodes)
+      const queue  = [{ key: startKey, d: 0 }];
+
+      edges.forEach((_, k) => dist.set(k, Infinity));
+      dist.set(startKey, 0);
+
+      while (queue.length) {
+        // Pop minimum-distance node
+        queue.sort((a, b) => a.d - b.d);
+        const { key: u } = queue.shift();
+
+        if (visited.has(u)) continue;
+        visited.add(u);
+
+        if (u === endKey) break;
+
+        const neighbours = edges.get(u) || [];
+        for (const { node: v, dist: w } of neighbours) {
+          if (visited.has(v)) continue;
+          const alt = dist.get(u) + w;
+          if (alt < (dist.get(v) ?? Infinity)) {
+            dist.set(v, alt);
+            prev.set(v, u);
+            queue.push({ key: v, d: alt });
+          }
+        }
+      }
+
+      // Reconstruct path
+      if (!prev.has(endKey) && startKey !== endKey) return null;
+      const path = [];
+      let cur = endKey;
+      while (cur !== undefined) {
+        path.unshift(cur);
+        cur = prev.get(cur);
+      }
+      return path.length > 1 ? path : null;
+    }
+
+    /**
+     * nearestNode(nodes, targetLon, targetLat)
+     * Returns the nodeKey in the graph closest (Euclidean) to the given coordinate.
+     */
+    function nearestNode(nodes, targetLon, targetLat) {
+      let bestKey = null, bestDist = Infinity;
+      nodes.forEach(key => {
+        const [lon, lat] = key.split(',').map(Number);
+        const d = Math.hypot(lon - targetLon, lat - targetLat);
+        if (d < bestDist) { bestDist = d; bestKey = key; }
+      });
+      return bestKey;
+    }
+
+    /**
+     * calculateTacticalRoute(gateLon, gateLat, stagingLon, stagingLat, roadGeojson)
+     * Snaps both endpoints to the nearest road graph nodes, runs Dijkstra,
+     * and returns a GeoJSON LineString geometry along the road network.
+     * Falls back to a straight line if the graph yields no path.
+     */
+    function calculateTacticalRoute(gateLon, gateLat, stagingLon, stagingLat, roadGeojson) {
+      const { nodes, edges } = buildRoadGraph(roadGeojson);
+
+      if (!nodes.size) {
+        // No road nodes — straight line fallback
+        return { type: 'LineString', coordinates: [[stagingLon, stagingLat], [gateLon, gateLat]] };
+      }
+
+      const startKey = nearestNode(nodes, stagingLon, stagingLat);
+      const endKey   = nearestNode(nodes, gateLon,    gateLat);
+
+      console.info(`[Dijkstra] Routing from node (${startKey}) → (${endKey})`);
+
+      const pathKeys = dijkstra(edges, startKey, endKey);
+
+      if (!pathKeys) {
+        console.warn('[Dijkstra] No path found — falling back to straight line.');
+        return { type: 'LineString', coordinates: [[stagingLon, stagingLat], [gateLon, gateLat]] };
+      }
+
+      // Prepend the real staging point and append the real gate coord so the
+      // line reaches exactly to both endpoints (not just the snapped nodes).
+      const snappedCoords = pathKeys.map(k => k.split(',').map(Number));
+      const fullCoords = [
+        [stagingLon, stagingLat],
+        ...snappedCoords,
+        [gateLon, gateLat]
+      ];
+
+      console.info(`[Dijkstra] Path found: ${pathKeys.length} road nodes, ${fullCoords.length} total coords.`);
+      return { type: 'LineString', coordinates: fullCoords };
     }
 
     // ================================================================
     // TACTICAL PANEL RENDERING
     // ================================================================
 
-    let approachLine = null;
-    let targetGateMarker = null;
+    let approachLineSourceId = null;  // string ID for safeRemove
+    let targetGateMarker = null;      // maplibregl.Marker
 
     function toggleTacticalPanel() {
       const panel = document.getElementById('tactical-panel');
@@ -1041,6 +1682,7 @@
       const briefing = tactical.command_briefing;
       if (!briefing) return;
 
+      // ---- TERMINAL-STYLE ACTION CARDS — PRESERVED VERBATIM ----
       const container = document.getElementById('tac-cards-container');
       container.innerHTML = '';
 
@@ -1056,41 +1698,92 @@
           container.appendChild(cardEl);
         });
       }
+      // ---- END PRESERVED BLOCK ----
 
-      // Draw Approach Route on Map
-      if (approachLine) map.removeLayer(approachLine);
-      if (targetGateMarker) map.removeLayer(targetGateMarker);
+      // --- MAP: Draw Approach Corridor + Best Gate Marker (MapLibre) ---
 
-      if (briefing.best_gate && typeof briefing.best_gate.lat !== 'undefined' && typeof briefing.best_gate.lon !== 'undefined' && briefing.staging_distance) {
+      // Clean up previous approach line and gate marker
+      if (approachLineSourceId) {
+        try { safeRemove(approachLineSourceId); } catch(e) {}
+        approachLineSourceId = null;
+      }
+      if (targetGateMarker) {
+        targetGateMarker.remove();
+        targetGateMarker = null;
+      }
+
+      if (
+        briefing.best_gate &&
+        typeof briefing.best_gate.lat !== 'undefined' &&
+        typeof briefing.best_gate.lon !== 'undefined' &&
+        briefing.staging_distance
+      ) {
         try {
           const gateLat = briefing.best_gate.lat;
           const gateLon = briefing.best_gate.lon;
 
           const windDir = parseFloat(document.getElementById('wind_dir').value) || 0;
-          
-          // Staging point is 'staging_distance' away from epicenter in the 'windDir' direction (upwind)
+
+          // Staging point: 'staging_distance' meters upwind from epicenter
           const stagingPt = destPoint(facilityPos[0], facilityPos[1], windDir, briefing.staging_distance);
 
-          // Draw line from stagingPt to the best gate
-          approachLine = L.polyline(
-            [[stagingPt.lat, stagingPt.lon], [gateLat, gateLon]],
-            { color: '#39ff14', weight: 4, dashArray: '10 10', opacity: 0.9 }
-          ).addTo(map);
+          // Approach corridor: Dijkstra road-snapped for Jaipur, straight line for others
+          let approachGeometry;
+          if (_demoFactoryData) {
+            // Snap to the internal road graph of the demo factory
+            approachGeometry = calculateTacticalRoute(
+              gateLon, gateLat,
+              stagingPt.lon, stagingPt.lat,
+              _demoFactoryData
+            );
+          } else {
+            // All other facilities: straight staging-point → gate line
+            approachGeometry = {
+              type: 'LineString',
+              coordinates: [
+                [stagingPt.lon, stagingPt.lat],
+                [gateLon,       gateLat]
+              ]
+            };
+          }
 
-          approachLine.bindTooltip('<strong>Safe Approach Corridor</strong>', { permanent: false });
+          approachLineSourceId = 'approach-line';
+          safeRemove(approachLineSourceId);
 
-          // Mark the target gate
-          const gateIcon = L.divIcon({
-            html: `<div style="width:14px;height:14px;background:#39ff14;border-radius:50%;border:2px solid #fff;box-shadow:0 0 12px #39ff14;"></div>`,
-            className: '',
-            iconSize: [14, 14],
-            iconAnchor: [7, 7]
+          map.addSource(approachLineSourceId, {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: approachGeometry }
           });
-          targetGateMarker = L.marker([gateLat, gateLon], { icon: gateIcon })
-            .addTo(map)
-            .bindTooltip(`<strong>${escapeHtml(briefing.best_gate.name)}</strong><br>Safe Entry Gate`);
+
+          map.addLayer({
+            id: approachLineSourceId,
+            type: 'line',
+            source: approachLineSourceId,
+            paint: {
+              'line-color': '#39ff14',
+              'line-width': 4,
+              'line-dasharray': [2.5, 2.5],
+              'line-opacity': 0.9
+            }
+          });
+
+          // Glowing green gate marker
+          const gateEl = document.createElement('div');
+          gateEl.style.cssText = `
+            width: 14px; height: 14px; background: #39ff14;
+            border-radius: 50%; border: 2px solid #fff;
+            box-shadow: 0 0 12px #39ff14; cursor: pointer;
+          `;
+
+          targetGateMarker = new maplibregl.Marker({ element: gateEl })
+            .setLngLat([gateLon, gateLat])   // [lng, lat]
+            .setPopup(new maplibregl.Popup({ offset: 14 }).setHTML(
+              `<strong>${escapeHtml(briefing.best_gate.name)}</strong><br>Safe Entry Gate`
+            ))
+            .addTo(map);
+
         } catch (e) {
-          console.error("Leaflet logic error drawing approach line:", e);
+          console.error("MapLibre logic error drawing approach line:", e);
         }
       }
     }
