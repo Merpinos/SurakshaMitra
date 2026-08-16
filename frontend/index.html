@@ -448,6 +448,32 @@
       text-shadow: 0 0 4px rgba(57, 255, 20, 0.3);
     }
 
+    /* Map style switcher */
+    #style-switcher {
+      position: absolute;
+      bottom: 120px;
+      right: 12px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .style-btn {
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      color: #333;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      transition: background .15s;
+    }
+    .style-btn:hover { background: #f0f0f0; }
+    .style-btn.active { background: #3b82f6; color: #fff; border-color: #2563eb; }
+
     /* Scrollbar styling */
     #tactical-panel::-webkit-scrollbar {
       width: 5px;
@@ -617,6 +643,13 @@
     </div>
 
     <div id="map">
+      <!-- Map style switcher -->
+      <div id="style-switcher">
+        <button class="style-btn active" id="btn-voyager"   onclick="setMapStyle('voyager')">🗺 Streets</button>
+        <button class="style-btn"        id="btn-satellite" onclick="setMapStyle('satellite')">🛰 Satellite</button>
+        <button class="style-btn"        id="btn-dark"      onclick="setMapStyle('dark')">🌙 Dark</button>
+      </div>
+
       <!-- Tactical Command Copilot Toggle Button -->
       <button id="tactical-toggle" onclick="toggleTacticalPanel()" style="display:none;">
         <span class="pulse-dot"></span> TACTICAL COPILOT
@@ -1182,10 +1215,10 @@ out geom;
     function initMap() {
       map = new maplibregl.Map({
         container: 'map',
-        style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+        style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
         center: [75.8069, 26.8505],   // [lng, lat] — Jaipur IOCL
         zoom: 5,
-        pitch: 60,
+        pitch: 35,
         bearing: -20,
         antialias: true
       });
@@ -1204,7 +1237,7 @@ out geom;
             type: 'fill-extrusion',
             minzoom: 14,
             paint: {
-              'fill-extrusion-color': '#1a2744',
+              'fill-extrusion-color': '#c8d6e5',
               'fill-extrusion-height': [
                 'coalesce',
                 ['get', 'render_height'],
@@ -1232,23 +1265,125 @@ out geom;
       if (map) map.resize();
     });
 
+    // ----------------------------------------------------------------
+    // MAP STYLE SWITCHER
+    // ----------------------------------------------------------------
+    const MAP_STYLES = {
+      voyager:   'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+      dark:      'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      satellite: 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+    };
+    // Fallback satellite (free, no key needed) using ESRI tiles via a MapLibre style
+    const SATELLITE_FALLBACK_STYLE = {
+      version: 8,
+      sources: {
+        'esri-sat': {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: 'Tiles &copy; Esri'
+        }
+      },
+      layers: [{ id: 'esri-sat-layer', type: 'raster', source: 'esri-sat' }]
+    };
+
+    let currentStyle = 'voyager';
+
+    function setMapStyle(style) {
+      currentStyle = style;
+      // Update button states
+      ['voyager','satellite','dark'].forEach(s => {
+        document.getElementById('btn-' + s)?.classList.toggle('active', s === style);
+      });
+
+      const styleUrl = style === 'satellite'
+        ? SATELLITE_FALLBACK_STYLE   // object style, no key needed
+        : MAP_STYLES[style];
+
+      // MapLibre setStyle re-loads the entire style; we re-render zones after
+      map.setStyle(styleUrl);
+      map.once('styledata', () => {
+        // Adjust building extrusion colour for dark vs light themes
+        try {
+          map.addLayer({
+            id: '3d-buildings',
+            source: 'carto',
+            'source-layer': 'building',
+            type: 'fill-extrusion',
+            minzoom: 14,
+            paint: {
+              'fill-extrusion-color': style === 'dark' ? '#1a2744' : '#c8d6e5',
+              'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 15],
+              'fill-extrusion-base':   ['coalesce', ['get', 'min_height'], 0],
+              'fill-extrusion-opacity': 0.78
+            }
+          });
+        } catch(e) { /* satellite style has no carto source, skip */ }
+        // Re-render zones on new style
+        submitCalculation();
+      });
+    }
+
+    // ----------------------------------------------------------------
+    // LIVE WEATHER from Open-Meteo (free, no API key)
+    // ----------------------------------------------------------------
+    async function fetchLiveWeather(lat, lon) {
+      const url = `https://api.open-meteo.com/v1/forecast?` +
+        `latitude=${lat}&longitude=${lon}` +
+        `&current=wind_speed_10m,wind_direction_10m` +
+        `&wind_speed_unit=ms&timezone=auto&forecast_days=1`;
+      try {
+        const res  = await fetch(url);
+        const data = await res.json();
+        const current = data?.current;
+        if (!current) throw new Error('No current weather data');
+        return {
+          wind_speed: parseFloat(current.wind_speed_10m.toFixed(1)),
+          wind_dir:   Math.round(current.wind_direction_10m)
+        };
+      } catch (err) {
+        console.warn('[Open-Meteo] Weather fetch failed:', err);
+        return null;
+      }
+    }
+
     function toggleWeatherInputs() {
       const useLive = document.getElementById('use_live_weather').checked;
       document.getElementById('wind_speed').disabled = useLive;
       document.getElementById('wind_dir').disabled = useLive;
+      if (useLive) {
+        // Show placeholder while fetching
+        document.getElementById('wind_speed').placeholder = 'fetching...';
+        document.getElementById('wind_dir').placeholder   = 'fetching...';
+      } else {
+        document.getElementById('wind_speed').placeholder = '';
+        document.getElementById('wind_dir').placeholder   = '';
+      }
     }
 
-    function onPresetChange() {
+    async function onPresetChange() {
       const presetKey = document.getElementById('facility_preset').value;
       if (presetKey in PRESETS) {
         const p = PRESETS[presetKey];
-        document.getElementById('lat').value = p.lat;
-        document.getElementById('lon').value = p.lon;
-        document.getElementById('fuel_type').value = p.fuel_type;
-        document.getElementById('mass_kg').value = p.mass_kg;
+        document.getElementById('lat').value          = p.lat;
+        document.getElementById('lon').value          = p.lon;
+        document.getElementById('fuel_type').value    = p.fuel_type;
+        document.getElementById('mass_kg').value      = p.mass_kg;
         document.getElementById('storage_type').value = p.storage_type;
-        document.getElementById('wind_speed').value = p.wind_speed;
-        document.getElementById('wind_dir').value = p.wind_dir;
+        // Set preset defaults first
+        document.getElementById('wind_speed').value   = p.wind_speed;
+        document.getElementById('wind_dir').value     = p.wind_dir;
+
+        // If live weather is on, fetch actual current conditions for this location
+        if (document.getElementById('use_live_weather').checked) {
+          updateStatus('Fetching weather for location...', 'info');
+          const wx = await fetchLiveWeather(p.lat, p.lon);
+          if (wx) {
+            document.getElementById('wind_speed').value = wx.wind_speed;
+            document.getElementById('wind_dir').value   = wx.wind_dir;
+            updateStatus(`Weather loaded: ${wx.wind_speed} m/s @ ${wx.wind_dir}°`, 'success');
+          }
+        }
       }
     }
 
@@ -1296,6 +1431,7 @@ out geom;
       };
       const facilityId = facilityMap[presetKey] || 'custom';
 
+      // Payload built with initial wind values; updated below if live weather fetched
       const payload = {
         facility_id: facilityId,
         use_live_weather: useLiveWeather,
@@ -1307,6 +1443,32 @@ out geom;
         wind_speed: windSpeed,
         wind_dir: windDir
       };
+
+      // If live weather checkbox is on, fetch from Open-Meteo first
+      let finalWindSpeed = windSpeed;
+      let finalWindDir   = windDir;
+
+      if (useLiveWeather) {
+        updateStatus("Fetching live weather...", "info");
+        showLoading(true);
+        const wx = await fetchLiveWeather(lat, lon);
+        if (wx) {
+          finalWindSpeed = wx.wind_speed;
+          finalWindDir   = wx.wind_dir;
+          // Update fields so user can see what was fetched
+          document.getElementById('wind_speed').value = finalWindSpeed;
+          document.getElementById('wind_dir').value   = finalWindDir;
+          console.info(`[Weather] Live: ${finalWindSpeed} m/s @ ${finalWindDir}°`);
+        } else {
+          // Fall back to manual values silently
+          updateStatus("Weather fetch failed — using manual values", "warning");
+          console.warn('[Weather] Using manual fallback values');
+        }
+      }
+
+      // Update payload with resolved wind values
+      payload.wind_speed = finalWindSpeed;
+      payload.wind_dir   = finalWindDir;
 
       showLoading(true);
       updateStatus("Connecting to API...", "info");
@@ -1330,7 +1492,10 @@ out geom;
         }
 
         renderGeoJson(geojson, lat, lon);
-        updateStatus("Live API Connected", "success");
+        const wxLabel = useLiveWeather
+          ? `Live API · Weather: ${finalWindSpeed} m/s @ ${finalWindDir}°`
+          : 'Live API Connected';
+        updateStatus(wxLabel, "success");
       } catch (err) {
         console.warn("FastAPI backend unreachable. Loading pre-baked jaipur_demo.json fallback...", err);
         updateStatus("Offline Fallback Mode (Jaipur IOCL)", "warning");
